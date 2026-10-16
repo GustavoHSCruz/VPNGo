@@ -323,11 +323,14 @@ The commands are the same on every system. Replace `app` with the program's name
 | `vpngo profile add <profile> <file.conf>` | Registers a VPN file under a name, or updates it. |
 | `vpngo profile list` | Lists your profiles. |
 | `vpngo start <app> [profile]` | Closes the app and opens it through its VPN. With a profile, also remembers that choice. |
+| `vpngo --temp <profile> <executable> [-d\|--detach]` | Runs once without saving the assignment. `vpngo start <executable> <profile> --temp` is equivalent. |
 | `vpngo assign <app> <profile>` | Changes which profile the app uses next time, without opening it. |
 | `vpngo status <app>` | Shows whether the app is on the VPN and which profile it uses. |
 | `vpngo switch <app> <profile>` | Moves an open app to another profile without closing it. |
 | `vpngo off <app>` / `vpngo on <app>` | Moves an open app to your normal connection, or back to the VPN. |
 | `vpngo stop <app>` | Closes the app and ends its VPN session. |
+
+For a temporary run, close other instances of the same program first. On macOS and Windows, the worker normally removes the route when the main process exits. If the worker disappears unexpectedly, the next vpngo command blocks that route and reports it; run `vpngo stop <app>` to close the app and clear the session. A child process that outlives the main process can lose the route when normal cleanup occurs. Check such apps before relying on `--temp`.
 
 You can run several apps at the same time, each on its own profile:
 
@@ -360,6 +363,8 @@ DNS isolation (`dns on`) needs `bubblewrap`, the kill switch, and an IP address 
 
 On Windows and macOS, `policy ... killswitch on` and `policy ... dns on` are refused: Mihomo cannot guarantee them per app. If Mihomo stops, fails to identify a process, or a helper program has no rule, traffic can go through your normal connection.
 
+Mihomo currently uses `1.1.1.1` and `9.9.9.9` as global DNS resolvers. These queries are not tied to the selected WireGuard profile. Its final rule is `MATCH,DIRECT`, so connections without a matching process rule use the normal network. Process-name rules can also match another instance of the same executable. Do not treat the process selector as DNS isolation or a per-app kill switch. Mihomo runs with administrator privileges to create the TUN adapter; use a trusted binary and keep its configuration and controller secret private.
+
 ### Helper programs (Windows and macOS)
 
 On Linux, everything the app starts stays in its isolated network. On Windows and macOS, Mihomo recognizes programs by name, so a separate helper program that the app starts (an updater, a renderer, a separate network process) may use your normal connection. Register known helpers:
@@ -370,6 +375,18 @@ vpngo start example-app
 ```
 
 The rule applies at the next `start`. It improves recognition but does not cover every possible process; check the address from inside the app when it matters.
+
+### Route checks on Windows and macOS
+
+Before using an app for sensitive traffic, check these cases on the actual device:
+
+1. Compare the public IP seen inside the selected app with the expected VPN exit, then repeat from an unselected app. Repeat after `switch` and after reconnecting.
+2. Resolve a fresh hostname in the selected app and capture DNS traffic on the physical and TUN interfaces. Check which resolver receives the query; IP checks alone do not test DNS. Repeat with the app's own secure DNS setting enabled, if it has one.
+3. Exercise login, updates, media and other features that start helpers. Inspect Mihomo's connection metadata for each helper path; register known helpers with `vpngo helper add` and repeat.
+4. Open a second instance of the same executable outside vpngo. Check both instances separately; a name rule may include both. Close the second instance before relying on the route.
+5. Terminate a detached temporary worker unexpectedly, run `vpngo status <app>`, and confirm the route is blocked. Run `vpngo stop <app>` to clear it. Then test an app whose child survives its main process.
+
+These checks can expose a mismatch on one setup; they do not establish isolation for every app or operating system version.
 
 ## 7. Problems and checks
 

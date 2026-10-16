@@ -8,7 +8,7 @@ chat-app     ──► brazil.conf  ──► VPN exit B
 other apps   ──► usual network
 ```
 
-vpngo is a small command-line launcher. You register WireGuard `.conf` files as named profiles, assign a profile to an application, and start the application through vpngo. Only that application's traffic goes through the tunnel; the rest of the system is untouched. You can run several applications on different profiles at the same time and switch one of them to another exit while it is running.
+vpngo is a small command-line launcher. You register WireGuard `.conf` files as named profiles, assign a profile to an application, and start the application through vpngo. You can run several applications on different profiles at the same time and switch one of them to another exit while it is running. On macOS and Windows, routing uses Mihomo process rules and has [important limits](#platform-limits) for DNS, helpers and processes with the same name.
 
 The project was built and tested with the **free WireGuard configurations from Proton VPN**. Any provider works, paid or free, including a WireGuard server you host yourself, if it gives you a standard WireGuard client file that meets the [profile requirements](#profile-requirements).
 
@@ -249,7 +249,7 @@ vpngo --temp germany dota2
 vpngo --temp germany kitty -d
 ```
 
-`--temp` checks the current directory first for a bare executable name. It also accepts an absolute or relative path, then falls back to normal executable discovery. It does not save an app-to-profile assignment or register the executable. Without `-d`, the command stays active until the launched process exits. Add `-d` or `--detach` to close the original terminal while the app runs. The VPN session ends when the app exits. On macOS and Windows, close any already running instance of the same program first: Mihomo routes by process name, so it cannot distinguish two copies of that program.
+`--temp` checks the current directory first for a bare executable name. It also accepts an absolute or relative path, then falls back to normal executable discovery. It does not save an app-to-profile assignment or register the executable. Without `-d`, the command stays active until the launched process exits. Add `-d` or `--detach` to close the original terminal while the app runs. On macOS and Windows, close any already running instance of the same program first: Mihomo routes by process name, so it cannot distinguish two copies of that program. If the temporary worker dies unexpectedly, the next command blocks its route; `vpngo stop <app>` closes the app and clears it. A surviving child process can lose the route when its parent exits normally.
 
 Replace `browser-app` and `chat-app` with the executable names of your applications.
 
@@ -301,12 +301,12 @@ The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app
 
 `off` explicitly selects the direct route. While it is active, the Linux `switch` command refuses to change profiles; run `on` first. Policies take effect on the next `start`.
 
-`stop` closes the application. On Linux, vopono tears down its namespace and WireGuard session. On macOS/Windows, vpngo closes the process and its attributed connections and leaves a `REJECT` selector for that app; the shared Mihomo TUN keeps serving other managed apps. `start` reactivates the app. The profile assignment stays saved.
+`stop` closes the application. On Linux, vopono tears down its namespace and WireGuard session. On macOS/Windows, vpngo closes the process and its attributed connections and leaves a `REJECT` selector for a persistent app; it removes a temporary app's selector. The shared Mihomo TUN keeps serving other managed apps. `start` reactivates a persistent app. Its profile assignment stays saved.
 
 ### Platform limits
 
 - **Linux namespaces.** Ordinary child processes stay on the same network, but a program that hands work to a service outside the namespace may use that service's route. DNS isolation covers resolver calls that use the app's glibc/NSS view; embedded resolvers, DoH, IPC and external services can bypass it. The kill switch relies on vopono's firewall and should be validated for your app and configuration.
-- **Mihomo process rules (macOS/Windows).** Routing depends on process attribution. An unmatched helper, a failed lookup or the routing engine stopping can let traffic go direct. `vpngo helper add` improves matching but does not make the setup fail-closed. A true system-enforced per-app guarantee would need native OS filtering or VPN integration.
+- **Mihomo process rules (macOS/Windows).** Routing depends on process attribution. The final rule is `MATCH,DIRECT`, so an unmatched helper, a failed lookup or the routing engine stopping can let traffic go direct. Mihomo's global DNS resolvers are `1.1.1.1` and `9.9.9.9`; queries are not bound to the selected VPN profile. A process-name rule can include another instance with the same name. `vpngo helper add` improves matching but does not make the setup fail-closed. A true system-enforced per-app guarantee would need native OS filtering or VPN integration. See the [device checks](docs/HOWTO.md#route-checks-on-windows-and-macos).
 - **Reconnection.** Existing connections may reconnect slowly or stay disconnected, because retry behavior belongs to the application. vpngo closes attributed Mihomo connections or Linux namespace TCP sockets, but it cannot force every program to retry. When it matters, check the public IP and DNS from inside the application.
 - **Untested launchers.** Windows and macOS behavior has not been verified on real devices. Different executables with the same process name may collide in Mihomo rules; vpngo rejects known conflicts when it prepares an app.
 - **Privacy scope.** vpngo changes routing only. Accounts, cookies, device identifiers and the VPN provider itself may still identify your activity.

@@ -92,11 +92,62 @@ class MihomoRouteTest(unittest.TestCase):
                   patch.object(managed, "find_temporary", return_value=app),
                   patch.object(managed, "resolve"),
                   patch.object(managed, "reload_runtime") as reload_runtime):
-                managed.prepare("./dota2", "east", temporary=True)
+                session = managed.prepare("./dota2", "east", temporary=True)["session"]
                 self.assertTrue(managed.load_managed()["dota2"]["temporary"])
-                managed.cleanup_temporary("dota2")
+                managed.cleanup_temporary("dota2", session)
                 self.assertEqual(managed.load_managed(), {})
                 self.assertEqual(reload_runtime.call_count, 2)
+
+    def test_orphaned_temporary_worker_blocks_route_until_stop(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "managed.json"
+            data = {"dota2": {"temporary": True, "session": "current", "process": "dota2",
+                                "created_at": 1, "worker_pid": 314, "worker_started": "old",
+                                "enabled": True, "blocked": False}}
+            with (patch.object(managed, "MANAGED", path),
+                  patch.object(managed, "process_start", return_value="new"),
+                  patch.object(managed, "reload_runtime", return_value=False) as reload_runtime,
+                  contextlib.redirect_stderr(io.StringIO())):
+                managed.save_managed(data)
+                self.assertEqual(managed.reconcile_temporary(), ["dota2"])
+                self.assertEqual(managed.reconcile_temporary(), [])
+                orphan = managed.load_managed()["dota2"]
+                self.assertTrue(orphan["blocked"])
+                self.assertFalse(orphan["enabled"])
+                self.assertTrue(orphan["orphaned"])
+                with self.assertRaises(apps.AppError):
+                    managed.bind_temporary("dota2", "current", 314)
+                with self.assertRaises(apps.AppError):
+                    managed.cleanup_temporary("dota2", "stale")
+                managed.cleanup_temporary("dota2", "current")
+                self.assertEqual(managed.load_managed(), {})
+                self.assertEqual(reload_runtime.call_count, 2)
+
+    def test_new_temporary_session_gets_startup_grace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "managed.json"
+            with (patch.object(managed, "MANAGED", path),
+                  patch.object(managed.time, "time", return_value=100),
+                  patch.object(managed, "reload_runtime") as reload_runtime):
+                managed.save_managed({"dota2": {"temporary": True, "session": "current",
+                                                "process": "dota2", "created_at": 90,
+                                                "enabled": True}})
+                self.assertEqual(managed.reconcile_temporary(), [])
+                reload_runtime.assert_not_called()
+
+    def test_legacy_temporary_session_can_be_stopped_after_reconciliation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "managed.json"
+            with (patch.object(managed, "MANAGED", path),
+                  patch.object(managed, "reload_runtime", return_value=False),
+                  contextlib.redirect_stderr(io.StringIO())):
+                managed.save_managed({"dota2": {"temporary": True, "process": "dota2",
+                                                "enabled": True, "blocked": False}})
+                self.assertEqual(managed.reconcile_temporary(), ["dota2"])
+                item = managed.load_managed()["dota2"]
+                self.assertTrue(item["blocked"])
+                managed.cleanup_temporary("dota2", item["session"])
+                self.assertEqual(managed.load_managed(), {})
 
     def test_two_profiles_route_to_different_wireguard_peers(self):
         def wireguard(host, ip):

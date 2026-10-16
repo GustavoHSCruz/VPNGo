@@ -14,6 +14,7 @@ system=linux
 asset="vpngo-$version-$system.tar.gz"
 base=${VPNGO_RELEASE_URL:-https://github.com/$repository/releases/download/v$version}
 prefix=${VPNGO_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/vpngo}
+shim="$HOME/.local/bin/vpngo"
 
 fail() {
     printf 'vpngo installer: %s\n' "$*" >&2
@@ -39,7 +40,29 @@ sha256() {
 }
 
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT INT TERM
+trap 'rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+rollback() {
+    status=$?
+    trap - EXIT INT TERM
+    if [ "$status" -ne 0 ] && [ "${swapped:-0}" -eq 1 ]; then
+        if [ -d "$prefix/app.old" ]; then
+            rm -rf "$prefix/app"
+            mv "$prefix/app.old" "$prefix/app"
+        elif [ "${had_app:-0}" -eq 0 ]; then
+            rm -rf "$prefix/app"
+        fi
+        rm -f "$shim"
+        if [ -e "$work/previous-command" ] || [ -L "$work/previous-command" ]; then
+            mv "$work/previous-command" "$shim"
+        fi
+        printf '%s\n' 'vpngo installer: previous installation restored.' >&2
+    fi
+    rm -rf "$work"
+    exit "$status"
+}
 
 printf 'Downloading vpngo %s for Linux...\n' "$version"
 download "$base/$asset" "$work/$asset"
@@ -51,14 +74,27 @@ printf 'Checksum verified.\n'
 
 tar -xzf "$work/$asset" -C "$work"
 mkdir -p "$prefix"
-rm -rf "$prefix/app.new" "$prefix/app.old"
+[ ! -e "$prefix/app.old" ] || fail 'app.old exists; resolve the previous interrupted upgrade before retrying.'
+if [ -e "$shim" ] || [ -L "$shim" ]; then
+    cp -pP "$shim" "$work/previous-command"
+fi
+rm -rf "$prefix/app.new"
 mv "$work/vpngo-$version-$system" "$prefix/app.new"
+had_app=0
 if [ -d "$prefix/app" ]; then
+    had_app=1
+fi
+swapped=1
+trap rollback EXIT
+if [ "$had_app" -eq 1 ]; then
     mv "$prefix/app" "$prefix/app.old"
 fi
 mv "$prefix/app.new" "$prefix/app"
-rm -rf "$prefix/app.old"
 
 "$prefix/app/linux/install.sh" ||
     fail 'install the missing tools (step 1 of the Linux guide), then run this installer again.'
+[ "$("$prefix/app/linux/vpngo" version)" = "vpngo $version" ] ||
+    fail 'the installed vpngo version did not validate.'
+swapped=0
+rm -rf "$prefix/app.old" || printf '%s\n' 'vpngo installer: could not remove app.old; remove it before the next upgrade.' >&2
 printf 'vpngo %s installed in %s\n' "$version" "$prefix/app"

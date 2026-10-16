@@ -16,6 +16,12 @@ $Prefix = if ($env:VPNGO_PREFIX) { $env:VPNGO_PREFIX } else { Join-Path $env:LOC
 
 $Work = Join-Path ([IO.Path]::GetTempPath()) ('vpngo-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Work | Out-Null
+$BackupCreated = $false
+$NewInstalled = $false
+$Shim = Join-Path (Join-Path $HOME 'bin') 'vpngo.cmd'
+$ShimExisted = Test-Path -LiteralPath $Shim
+$OriginalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($ShimExisted) { Copy-Item -LiteralPath $Shim -Destination (Join-Path $Work 'vpngo.cmd') }
 try {
     Write-Output "Downloading vpngo $Version for Windows..."
     $Archive = Join-Path $Work $Asset
@@ -38,21 +44,50 @@ try {
     $App = Join-Path $Prefix 'app'
     $New = Join-Path $Prefix 'app.new'
     $Old = Join-Path $Prefix 'app.old'
-    foreach ($Path in @($New, $Old)) {
-        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
-    }
+    if (Test-Path -LiteralPath $Old) { throw 'app.old exists; resolve the previous interrupted upgrade before retrying.' }
+    if (Test-Path -LiteralPath $New) { Remove-Item -LiteralPath $New -Recurse -Force }
     Move-Item -LiteralPath (Join-Path $Work "vpngo-$Version-windows") -Destination $New
-    if (Test-Path -LiteralPath $App) { Move-Item -LiteralPath $App -Destination $Old }
+    if (Test-Path -LiteralPath $App) {
+        Move-Item -LiteralPath $App -Destination $Old
+        $BackupCreated = $true
+    }
+    $NewInstalled = $true
     Move-Item -LiteralPath $New -Destination $App
-    if (Test-Path -LiteralPath $Old) { Remove-Item -LiteralPath $Old -Recurse -Force }
 
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $App 'windows\install.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'The vpngo command installer failed.' }
+    $Python = if ($env:VPNGO_PYTHON) { $env:VPNGO_PYTHON } else { 'python' }
+    $InstalledVersion = & $Python (Join-Path $App 'shared\commands.py') version
+    if ($LASTEXITCODE -ne 0 -or $InstalledVersion -ne "vpngo $Version") {
+        throw 'The installed vpngo version did not validate.'
+    }
+    $BackupCreated = $false
+    $NewInstalled = $false
+    if (Test-Path -LiteralPath $Old) {
+        try { Remove-Item -LiteralPath $Old -Recurse -Force }
+        catch { Write-Warning 'Could not remove app.old; remove it before the next upgrade.' }
+    }
     Write-Output "vpngo $Version installed in $App"
     if (-not $env:VPNGO_MIHOMO -and -not (Get-Command mihomo.exe -ErrorAction SilentlyContinue) -and
             -not (Test-Path -LiteralPath (Join-Path $HOME 'bin\mihomo.exe'))) {
         Write-Output 'Next: install Mihomo (step 1 of the Windows guide).'
     }
+} catch {
+    $Failure = $_
+    if ($NewInstalled -or $BackupCreated) {
+        if ($NewInstalled -and (Test-Path -LiteralPath $App)) {
+            Remove-Item -LiteralPath $App -Recurse -Force
+        }
+        if ($BackupCreated) { Move-Item -LiteralPath $Old -Destination $App }
+        if ($ShimExisted) {
+            Copy-Item -LiteralPath (Join-Path $Work 'vpngo.cmd') -Destination $Shim -Force
+        } elseif (Test-Path -LiteralPath $Shim) {
+            Remove-Item -LiteralPath $Shim -Force
+        }
+        [Environment]::SetEnvironmentVariable('Path', $OriginalUserPath, 'User')
+        Write-Warning 'Previous vpngo installation restored.'
+    }
+    throw $Failure
 } finally {
     Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
 }

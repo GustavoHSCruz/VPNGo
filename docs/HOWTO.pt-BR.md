@@ -331,7 +331,7 @@ Os comandos são os mesmos em todos os sistemas. Troque `app` pelo nome do progr
 | `vpngo stop <app>` | Fecha o aplicativo e encerra a sessão de VPN dele. |
 | `vpngo help <comando>` | Mostra a sintaxe e as opções de um comando, por exemplo `vpngo help switch`. |
 
-Por exemplo, estando em `/games`, execute `vpngo --temp brasil dota2 -d` para usar `/games/dota2` sem manter o terminal de origem aberto. A sessão termina quando o aplicativo fecha. No macOS e Windows, feche outras instâncias do mesmo programa antes: o roteamento do Mihomo usa o nome do processo.
+Por exemplo, estando em `/games`, execute `vpngo --temp brasil dota2 -d` para usar `/games/dota2` sem manter o terminal de origem aberto. No macOS e Windows, feche outras instâncias do mesmo programa antes: o roteamento do Mihomo usa o nome do processo. Normalmente, o processo acompanhante remove a rota quando o processo principal termina. Se ele desaparecer sem limpar a sessão, o próximo comando vpngo bloqueia a rota e avisa; rode `vpngo stop <app>` para fechar o aplicativo e limpar a sessão. Um subprocesso que sobreviver ao principal pode perder a rota na limpeza normal. Teste esse comportamento antes de depender de `--temp`.
 
 Você pode rodar vários aplicativos ao mesmo tempo, cada um no seu perfil:
 
@@ -364,6 +364,8 @@ O isolamento de DNS (`dns on`) precisa do `bubblewrap`, do kill switch e de um I
 
 No Windows e no macOS, `policy ... killswitch on` e `policy ... dns on` são recusados: o Mihomo não consegue garantir isso por aplicativo. Se o Mihomo parar, não identificar um processo ou um programa auxiliar ficar sem regra, o tráfego pode sair pela sua conexão normal.
 
+O Mihomo usa atualmente `1.1.1.1` e `9.9.9.9` como resolvedores DNS globais. Essas consultas não estão vinculadas ao perfil WireGuard escolhido. A última regra é `MATCH,DIRECT`: conexões sem correspondência por processo seguem pela rede normal. Regras por nome também podem abranger outra instância do mesmo executável. O seletor de processos não oferece isolamento de DNS nem kill switch por aplicativo. O Mihomo roda com privilégios de administrador para criar o adaptador TUN; use um binário confiável e mantenha privados a configuração e o segredo do controlador.
+
 ### Programas auxiliares (Windows e macOS)
 
 No Linux, tudo o que o aplicativo abre fica na rede isolada dele. No Windows e no macOS, o Mihomo reconhece os programas pelo nome, então um programa auxiliar separado que o aplicativo abre (um atualizador, um renderizador, um processo de rede separado) pode usar a sua conexão normal. Cadastre os auxiliares conhecidos:
@@ -374,6 +376,18 @@ vpngo start exemplo-app
 ```
 
 A regra vale no próximo `start`. Ela melhora o reconhecimento, mas não cobre todo processo possível; confira o endereço de dentro do aplicativo quando isso importar.
+
+### Verificações de rota no Windows e no macOS
+
+Antes de usar um aplicativo com tráfego sensível, confira estes casos no dispositivo real:
+
+1. Compare o IP público visto dentro do aplicativo selecionado com a saída esperada da VPN; repita em um aplicativo não selecionado. Repita após `switch` e reconexão.
+2. Resolva um nome de domínio novo no aplicativo e capture o tráfego DNS nas interfaces física e TUN. Confira qual resolvedor recebe a consulta; verificar só o IP não testa DNS. Repita com o DNS seguro próprio do aplicativo, se houver.
+3. Use login, atualizações, mídia e outras funções que abrem auxiliares. Inspecione o caminho de cada auxiliar nos metadados de conexões do Mihomo; cadastre os conhecidos com `vpngo helper add` e repita.
+4. Abra uma segunda instância do mesmo executável fora do vpngo. Verifique as duas separadamente; uma regra por nome pode incluir ambas. Feche a segunda instância antes de depender da rota.
+5. Encerre à força o processo acompanhante de uma sessão temporária destacada, rode `vpngo status <app>` e confirme o bloqueio. Use `vpngo stop <app>` para limpar. Depois teste um aplicativo cujo subprocesso sobreviva ao principal.
+
+Essas verificações podem revelar divergências em uma configuração; não demonstram isolamento para todos os aplicativos ou versões do sistema.
 
 ## 7. Problemas e verificações
 

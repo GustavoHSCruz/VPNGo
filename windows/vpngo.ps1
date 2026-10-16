@@ -26,12 +26,14 @@ try {
         exit 2
     }
     if ($Application -eq 'temp-wait') {
-        if (-not $Action -or -not $Profile -or $args.Count -ne 0) { throw 'Invalid temporary worker arguments.' }
+        if (-not $Action -or -not $Profile -or $args.Count -ne 1) { throw 'Invalid temporary worker arguments.' }
+        $Session = [string]$args[0]
         try {
+            Invoke-Python 'shared/managed.py' @('temp-bind', $Action, $Session, [string]$PID) | Out-Null
             $Child = Start-Process -FilePath $Profile -Wait -PassThru
             $ChildExitCode = $Child.ExitCode
         } finally {
-            Invoke-Python 'shared/managed.py' @('temp-cleanup', $Action) | Out-Null
+            Invoke-Python 'shared/managed.py' @('temp-cleanup', $Action, $Session) | Out-Null
         }
         exit $ChildExitCode
     }
@@ -70,7 +72,8 @@ try {
                 $WorkerScript = $PSCommandPath.Replace("'", "''")
                 $WorkerProcess = $App.process.Replace("'", "''")
                 $WorkerLaunch = $App.launch.Replace("'", "''")
-                $WorkerCommand = "& '$WorkerScript' temp-wait '$WorkerProcess' '$WorkerLaunch'"
+                $WorkerSession = $App.session.Replace("'", "''")
+                $WorkerCommand = "& '$WorkerScript' temp-wait '$WorkerProcess' '$WorkerLaunch' '$WorkerSession'"
                 $Encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($WorkerCommand))
                 $Worker = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') `
                     -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$Encoded) `
@@ -81,10 +84,11 @@ try {
                 Write-Output "$Profile started through the VPN (PID $($Worker.Id)). You can close this terminal."
                 exit 0
             }
+            Invoke-Python 'shared/managed.py' @('temp-bind', $App.process, $App.session, [string]$PID) | Out-Null
             $Child = Start-Process -FilePath $App.launch -Wait -PassThru
             $ChildExitCode = $Child.ExitCode
         } finally {
-            if ($TempPrepared) { Invoke-Python 'shared/managed.py' @('temp-cleanup', $App.process) | Out-Null }
+            if ($TempPrepared) { Invoke-Python 'shared/managed.py' @('temp-cleanup', $App.process, $App.session) | Out-Null }
         }
         exit $ChildExitCode
     }
@@ -145,7 +149,12 @@ try {
             if ($BlockFailed -or (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
                 throw "$Application stop incomplete; the route remains blocked if Mihomo accepted it."
             }
-            Write-Output "$Application`: application closed; its Mihomo route is blocked. Other applications stay connected."
+            if ($App.temporary) {
+                Invoke-Python 'shared/managed.py' @('temp-cleanup', $App.process, $App.session) | Out-Null
+                Write-Output "$Application`: application closed; temporary Mihomo route removed."
+            } else {
+                Write-Output "$Application`: application closed; its Mihomo route is blocked. Other applications stay connected."
+            }
             exit 0
         }
         Invoke-Control $Application $Action

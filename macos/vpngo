@@ -15,11 +15,13 @@ project=$(CDPATH= cd -- "$(dirname -- "$source")/.." && pwd)
 state="$HOME/.local/state/vpngo/mihomo"
 python=${VPNGO_PYTHON:-python3}
 
-if [ "$#" -eq 3 ] && [ "$1" = temp-wait ]; then
+if [ "$#" -eq 4 ] && [ "$1" = temp-wait ]; then
     process=$2
-    launch=$3
-    cleanup() { "$python" "$project/shared/managed.py" temp-cleanup "$process"; }
+    session=$3
+    launch=$4
+    cleanup() { "$python" "$project/shared/managed.py" temp-cleanup "$process" "$session"; }
     trap cleanup 0
+    "$python" "$project/shared/managed.py" temp-bind "$process" "$session" "$$"
     case "$launch" in
         *.app) open -W -a "$launch" ;;
         *) "$launch" ;;
@@ -49,8 +51,9 @@ if [ "$#" -ge 3 ] && [ "$#" -le 4 ] && [ "$1" = --temp ]; then
     fi
     app_json=$("$python" "$project/shared/managed.py" temp-prepare "$application" "$profile")
     process=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["process"])')
+    session=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["session"])')
     launch=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["launch"])')
-    cleanup() { "$python" "$project/shared/managed.py" temp-cleanup "$process"; }
+    cleanup() { "$python" "$project/shared/managed.py" temp-cleanup "$process" "$session"; }
     trap cleanup 0
     mihomo=${VPNGO_MIHOMO:-$(command -v mihomo || true)}
     [ -n "$mihomo" ] && [ -x "$mihomo" ] || { printf '%s\n' 'mihomo executable not found.' >&2; exit 1; }
@@ -72,12 +75,13 @@ if [ "$#" -ge 3 ] && [ "$#" -le 4 ] && [ "$1" = --temp ]; then
     fi
     if [ "$detached" -eq 1 ]; then
         umask 077
-        nohup "$source" temp-wait "$process" "$launch" >> "$state/temp.log" 2>&1 < /dev/null &
+        nohup "$source" temp-wait "$process" "$session" "$launch" >> "$state/temp.log" 2>&1 < /dev/null &
         worker=$!
         trap - 0
         printf '%s\n' "$application started through the VPN (PID $worker). You can close this terminal."
         exit 0
     fi
+    "$python" "$project/shared/managed.py" temp-bind "$process" "$session" "$$"
     case "$launch" in
         *.app) open -W -a "$launch" ;;
         *) "$launch" ;;
@@ -187,7 +191,13 @@ case "$action" in
             printf '%s\n' "$application: stop incomplete; the route remains blocked if Mihomo accepted it." >&2
             exit 1
         fi
-        printf '%s\n' "$application: application closed; its Mihomo route is blocked. Other applications stay connected."
+        if printf '%s' "$app_json" | "$python" -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("temporary") else 1)'; then
+            session=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["session"])')
+            "$python" "$project/shared/managed.py" temp-cleanup "$process" "$session"
+            printf '%s\n' "$application: application closed; temporary Mihomo route removed."
+        else
+            printf '%s\n' "$application: application closed; its Mihomo route is blocked. Other applications stay connected."
+        fi
         ;;
     *) usage ;;
 esac

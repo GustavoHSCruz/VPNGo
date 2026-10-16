@@ -84,7 +84,9 @@ def main():
                      tr("status_off") if current["now"] == "DIRECT" else
                      tr("status_partial"))
         print(tr("controller_status", app=app_name, state=state) +
-              f"; profile: {assigned_profile}; routing: Mihomo process rules (best effort)")
+              f"; profile: {assigned_profile}; routing: Mihomo process rules (best effort)" +
+              (f"; temporary session orphaned: run 'vpngo stop {app_name}'"
+               if managed[app_key].get("orphaned") else ""))
         return 0
     if action == "block":
         if current["now"] != "REJECT":

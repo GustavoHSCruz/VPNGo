@@ -58,6 +58,9 @@ def main(argv=None):
     if not args:
         return usage()
     command = args[0]
+    if sys.platform in {"darwin", "win32"} and command not in {"version", "help", "--help", "-h"}:
+        from managed import reconcile_temporary
+        reconcile_temporary()
     if command in {"help", "--help", "-h"}:
         if len(args) == 1:
             return usage(0, full=True)

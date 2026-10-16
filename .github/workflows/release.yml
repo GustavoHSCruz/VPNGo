@@ -204,12 +204,11 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "vpngo $VERSION" --notes-file notes.md --generate-notes --verify-tag $prerelease
 
-  aur:
-    if: needs.build.outputs.stable == 'true'
+  aur_key:
     needs: [build, publish]
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.build.outputs.version }}
+    outputs:
+      set: ${{ steps.secret.outputs.set }}
     steps:
       - id: secret
         name: Check the AUR key
@@ -218,17 +217,21 @@ jobs:
         run: |
           if [ -n "$KEY" ]; then echo "set=true" >> "$GITHUB_OUTPUT"
           else echo "::notice::AUR_SSH_PRIVATE_KEY is not set; the AUR package was not updated."; fi
-      - if: steps.secret.outputs.set == 'true'
-        uses: actions/checkout@v7
-      - if: steps.secret.outputs.set == 'true'
-        uses: actions/download-artifact@v8
+
+  aur:
+    if: needs.build.outputs.stable == 'true' && needs.aur_key.outputs.set == 'true'
+    needs: [build, publish, aur_key]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
-      - if: steps.secret.outputs.set == 'true'
-        run: python3 tools/package_manifests.py --version "$VERSION" --sums dist/SHA256SUMS --repository "$GITHUB_REPOSITORY" --out pkg
-      - if: steps.secret.outputs.set == 'true'
-        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+      - run: python3 tools/package_manifests.py --version "$VERSION" --sums dist/SHA256SUMS --repository "$GITHUB_REPOSITORY" --out pkg
+      - uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
         with:
           pkgname: vpngo
           pkgbuild: pkg/PKGBUILD
