@@ -1,0 +1,721 @@
+#!/usr/bin/env python3
+"""Start one application in vopono and switch its network route live."""
+
+import json
+import hashlib
+import ipaddress
+import os
+import re
+import shlex
+import shutil
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared"))
+from i18n import tr
+from apps import AppError, add_path, find
+from assignments import get as assignment_for
+from generate_mihomo import parse_wireguard
+from profiles import load as load_profiles, profile_key, register, resolve
+
+
+RULE_PRIORITY = 1000
+WG_TABLE = "51820"
+COMMENT = "vpngo-off"
+STATE_DIR = Path.home() / ".local/state/vpngo"
+
+
+class SwitchError(Exception):
+    pass
+
+
+def run(*args, input_text=None, check=True):
+    result = subprocess.run(
+        args, input=input_text, text=True, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, check=False,
+    )
+    if check and result.returncode:
+        raise SwitchError(f"{' '.join(args)}: {result.stderr.strip() or result.stdout.strip()}")
+    return result
+
+
+def root(*args, input_text=None, check=True):
+    return run("sudo", "-n", *args, input_text=input_text, check=check)
+
+
+def netns(namespace, *args, input_text=None, check=True):
+    return root("ip", "netns", "exec", namespace, *args,
+                input_text=input_text, check=check)
+
+
+def app_namespace(app_name, executable=None, allow_missing=False):
+    data = json.loads(run("vopono", "status", "--json").stdout)
+    matches = []
+    for namespace in data.get("namespaces", []):
+        if namespace.get("protocol", "").lower() != "wireguard":
+            continue
+        namespace_id = namespace.get("id", "")
+        session_file = session_path(namespace_id) if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", namespace_id) else None
+        if session_file and session_file.is_file():
+            session = json.loads(session_file.read_text(encoding="utf-8"))
+            if (str(session.get("app", "")).casefold() == app_name.casefold() and
+                    (executable is None or session.get("executable") == executable)):
+                if len(namespace.get("applications", [])) != 1:
+                    raise SwitchError(tr("extra_apps"))
+                matches.append(namespace_id)
+                continue
+        applications = namespace.get("applications", [])
+        for app in applications:
+            argv = app.get("argv") or []
+            command = app.get("command") or (argv[0] if argv else "")
+            candidates = [command, *argv]
+            if executable and any(Path(candidate).name.casefold() == Path(executable).name.casefold()
+                                  for candidate in candidates):
+                if len(applications) != 1:
+                    raise SwitchError(tr("extra_apps"))
+                matches.append(namespace["id"])
+                break
+    if not matches and allow_missing:
+        return None
+    if len(matches) != 1:
+        raise SwitchError(
+            tr("namespace_count", app=app_name, count=len(matches))
+        )
+    namespace = matches[0]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", namespace):
+        raise SwitchError(tr("invalid_namespace"))
+    return namespace
+
+
+def network_details(namespace):
+    interfaces = netns(namespace, "wg", "show", "interfaces").stdout.split()
+    if len(interfaces) != 1:
+        raise SwitchError(tr("one_wg"))
+    wg_interface = interfaces[0]
+    routes = netns(namespace, "ip", "-4", "route", "show", "default").stdout
+    match = re.search(r"\bdev\s+(\S+)", routes)
+    if not match:
+        raise SwitchError(tr("no_direct_route"))
+    direct_interface = match.group(1)
+    if direct_interface == wg_interface:
+        raise SwitchError(tr("route_is_vpn"))
+    nft = netns(namespace, "nft", "-a", "list", "chain", "inet", namespace,
+                "output", check=False)
+    if nft.returncode == 0:
+        firewall = "nft"
+    elif netns(namespace, "iptables", "-S", "OUTPUT", check=False).returncode == 0:
+        firewall = "iptables"
+    else:
+        raise SwitchError(tr("no_firewall"))
+    return wg_interface, direct_interface, firewall
+
+
+def rule_present(namespace, family, priority):
+    lines = netns(namespace, "ip", family, "rule", "show").stdout.splitlines()
+    return any(line.lstrip().startswith(f"{priority}:") for line in lines)
+
+
+def allowed(namespace, direct_interface, firewall):
+    if firewall == "nft":
+        rules = netns(namespace, "nft", "-a", "list", "chain", "inet",
+                      namespace, "output").stdout
+        return any(COMMENT in line for line in rules.splitlines())
+    return netns(namespace, "iptables", "-C", "OUTPUT", "-o", direct_interface,
+                 "-m", "comment", "--comment", COMMENT, "-j", "ACCEPT",
+                 check=False).returncode == 0
+
+
+def set_allowed(namespace, direct_interface, firewall, enable):
+    if firewall == "nft":
+        rules = netns(namespace, "nft", "-a", "list", "chain", "inet",
+                      namespace, "output").stdout
+        handles = [re.search(r"# handle (\d+)", line).group(1)
+                   for line in rules.splitlines()
+                   if COMMENT in line and re.search(r"# handle (\d+)", line)]
+        if enable and not handles:
+            netns(namespace, "nft", "insert", "rule", "inet", namespace,
+                  "output", "oifname", f'"{direct_interface}"', "accept", "comment", f'"{COMMENT}"')
+        elif not enable:
+            for handle in handles:
+                netns(namespace, "nft", "delete", "rule", "inet", namespace,
+                      "output", "handle", handle)
+    else:
+        specification = ("OUTPUT", "-o", direct_interface, "-m", "comment",
+                         "--comment", COMMENT, "-j", "ACCEPT")
+        exists = allowed(namespace, direct_interface, firewall)
+        if enable and not exists:
+            netns(namespace, "iptables", "-I", "OUTPUT", "1", *specification[1:])
+        elif not enable and exists:
+            netns(namespace, "iptables", "-D", *specification)
+
+
+def dns_paths(namespace):
+    system_file = Path("/etc/netns") / namespace / "resolv.conf"
+    backup_file = STATE_DIR / f"{namespace}.resolv.conf"
+    metadata = system_file.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0:
+        raise SwitchError(tr("unexpected_dns"))
+    return system_file, backup_file
+
+
+def save_dns(system_file, backup_file):
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE_DIR, 0o700)
+    if not backup_file.exists():
+        fd = os.open(backup_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as output:
+            output.write(system_file.read_text())
+
+
+def write_dns(system_file, content):
+    root("tee", str(system_file), input_text=content)
+
+
+def ensure_vpn_routes(namespace, wg_interface):
+    netns(namespace, "ip", "-4", "route", "replace", "default", "dev",
+          wg_interface, "table", WG_TABLE)
+    ipv6_addresses = netns(namespace, "ip", "-6", "-o", "addr", "show", "dev",
+                           wg_interface).stdout
+    if "inet6 " in ipv6_addresses:
+        netns(namespace, "ip", "-6", "route", "replace", "default", "dev",
+              wg_interface, "table", WG_TABLE)
+
+
+def turn_off(namespace, wg_interface, direct_interface, firewall, app_name):
+    system_file, backup_file = dns_paths(namespace)
+    off_rule = rule_present(namespace, "-4", RULE_PRIORITY)
+    ipv6_block = rule_present(namespace, "-6", RULE_PRIORITY)
+    if allowed(namespace, direct_interface, firewall) and off_rule and ipv6_block and backup_file.exists():
+        print(tr("already_off", app=app_name))
+        return
+    if backup_file.exists():
+        raise SwitchError(tr("incomplete_switch"))
+    for family, priority in (("-4", RULE_PRIORITY), ("-6", RULE_PRIORITY)):
+        if rule_present(namespace, family, priority):
+            raise SwitchError(tr("rule_collision", priority=priority))
+    save_dns(system_file, backup_file)
+    try:
+        set_allowed(namespace, direct_interface, firewall, True)
+        netns(namespace, "ip", "-4", "rule", "add", "pref", str(RULE_PRIORITY),
+              "lookup", "main")
+        netns(namespace, "ip", "-6", "rule", "add", "pref", str(RULE_PRIORITY),
+              "unreachable")
+        write_dns(system_file, "nameserver 1.1.1.1\nnameserver 9.9.9.9\n")
+        netns(namespace, "ip", "link", "set", "dev", wg_interface, "down")
+    except Exception:
+        turn_on(namespace, wg_interface, direct_interface, firewall, app_name)
+        raise
+    reconnect(namespace)
+    print(tr("off", app=app_name))
+
+
+def turn_on(namespace, wg_interface, direct_interface, firewall, app_name):
+    system_file, backup_file = dns_paths(namespace)
+    off_rules = any(rule_present(namespace, family, priority) for family, priority in (
+        ("-4", RULE_PRIORITY), ("-6", RULE_PRIORITY)
+    ))
+    if (allowed(namespace, direct_interface, firewall) or off_rules) and not backup_file.exists():
+        raise SwitchError(tr("missing_backup"))
+    current_route = netns(namespace, "ip", "-4", "route", "get", "1.1.1.1").stdout
+    if not off_rules and not backup_file.exists() and f"dev {wg_interface}" in current_route:
+        print(tr("already_on", app=app_name))
+        return
+    netns(namespace, "ip", "link", "set", "dev", wg_interface, "up")
+    ensure_vpn_routes(namespace, wg_interface)
+    set_allowed(namespace, direct_interface, firewall, False)
+    for family, priority, action in (
+        ("-4", RULE_PRIORITY, ("lookup", "main")),
+        ("-6", RULE_PRIORITY, ("unreachable",)),
+    ):
+        if rule_present(namespace, family, priority):
+            netns(namespace, "ip", family, "rule", "del", "pref", str(priority), *action)
+    if backup_file.exists():
+        write_dns(system_file, backup_file.read_text())
+        backup_file.unlink()
+    reconnect(namespace)
+    print(tr("on", app=app_name))
+
+
+def reconnect(namespace):
+    # The namespace contains just the selected app. Abort its old TCP sockets
+    # so its normal retry logic can open new ones on the new route.
+    result = netns(namespace, "ss", "-K", "-t", "state", "established", check=False)
+    if result.returncode:
+        raise SwitchError(tr("reconnect_failed", detail=result.stderr.strip()))
+
+
+def app_pids(process_name):
+    name = Path(process_name).name
+    if name.casefold() in {"python", "python3", "sh", "bash", "zsh", "sudo", "vopono", "systemd", "init"}:
+        raise SwitchError(tr("unsafe_process", app=name))
+    expression = re.escape(name[:15]) + r"(?: Helper.*)?"
+    result = run("pgrep", "-i", "-u", str(os.getuid()), "-x", expression, check=False)
+    protected = {os.getpid(), os.getppid()}
+    return [int(line) for line in result.stdout.splitlines()
+            if line.isdigit() and int(line) not in protected]
+
+
+def close_app(process_name):
+    pids = app_pids(process_name)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 6
+    while app_pids(process_name) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    for pid in app_pids(process_name):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def isolated_nsswitch():
+    source = Path("/etc/nsswitch.conf")
+    if not source.is_file():
+        raise SwitchError("DNS isolation requires /etc/nsswitch.conf.")
+    content = source.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("hosts:"):
+            lines[index] = "hosts: files dns"
+            replaced = True
+    if not replaced:
+        lines.append("hosts: files dns")
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE_DIR, 0o700)
+    target = STATE_DIR / "nsswitch.conf"
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write("\n".join(lines) + "\n")
+    return target
+
+
+def session_path(namespace):
+    return STATE_DIR / f"{namespace}.json"
+
+
+def save_session(namespace, data):
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE_DIR, 0o700)
+    target = session_path(namespace)
+    descriptor = os.open(target.with_suffix(".tmp"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        json.dump(data, output)
+        output.write("\n")
+    target.with_suffix(".tmp").replace(target)
+
+
+def load_session(namespace):
+    path = session_path(namespace)
+    if not path.is_file():
+        raise SwitchError("This session predates profile switching. Restart the application with vpngo start first.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def stop_app(app_name, executable=None):
+    namespace = app_namespace(app_name, executable, allow_missing=True)
+    if namespace is None:
+        print(f"{app_name}: already stopped.")
+        return 0
+    run("sudo", "-v")
+    run("vopono", "stop", "namespace", namespace)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        status = json.loads(run("vopono", "status", "--json").stdout)
+        if not any(item.get("id") == namespace for item in status.get("namespaces", [])):
+            for path in (session_path(namespace), STATE_DIR / f"{namespace}.resolv.conf",
+                         STATE_DIR / f"{namespace}.launch"):
+                path.unlink(missing_ok=True)
+            print(f"{app_name}: application and VPN namespace stopped.")
+            return 0
+        time.sleep(0.25)
+    raise SwitchError(f"Could not verify that VPN namespace '{namespace}' stopped.")
+
+
+def dns_launcher(namespace, nsswitch, executable):
+    launcher = STATE_DIR / f"{namespace}.launch"
+    content = ("#!/bin/sh\nexec " + " ".join(shlex.quote(str(value)) for value in (
+        Path(__file__).with_name("dns-launch"), nsswitch, executable)) + "\n")
+    descriptor = os.open(launcher, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+    os.fchmod(descriptor, 0o700)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(content)
+    return launcher
+
+
+def launch_command(config, namespace, executable, policy, dns_server=None, launcher=None):
+    command = ["nohup", "vopono", "exec", "--custom", str(config),
+               "--protocol", "wireguard", "--custom-netns-name", namespace]
+    if not policy["killswitch"]:
+        command.append("--no-killswitch")
+    if policy["dns"]:
+        if not dns_server or not launcher:
+            raise SwitchError("DNS isolation needs a nameserver and private resolver setup.")
+        command += ["--dns", dns_server, str(launcher)]
+    else:
+        command.append(executable)
+    return command
+
+
+def resolved_endpoint(profile):
+    host, port = profile["host"], profile["port"]
+    try:
+        address = ipaddress.ip_address(host)
+        return str(address), port
+    except ValueError:
+        pass
+    answers = socket.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
+    if not answers:
+        raise SwitchError(f"Could not resolve VPN endpoint: {host}")
+    # Prefer IPv4 when both are available, matching vopono's common setup.
+    answers.sort(key=lambda result: result[0] != socket.AF_INET)
+    return answers[0][4][0], port
+
+
+def wireguard_contents(profile, fwmark, endpoint):
+    host, port = endpoint
+    address = f"[{host}]" if ipaddress.ip_address(host).version == 6 else host
+    lines = ["[Interface]", f"PrivateKey = {profile['private_key']}"]
+    if fwmark not in {"", "off", "0"}:
+        lines.append(f"FwMark = {fwmark}")
+    lines += ["", "[Peer]", f"PublicKey = {profile['public_key']}",
+              f"AllowedIPs = {', '.join(profile['allowed'])}",
+              f"Endpoint = {address}:{port}"]
+    if profile["psk"]:
+        lines.append(f"PresharedKey = {profile['psk']}")
+    if profile["keepalive"]:
+        lines.append(f"PersistentKeepalive = {profile['keepalive']}")
+    return "\n".join(lines) + "\n"
+
+
+def private_temp(content):
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix="switch-", suffix=".conf", dir=STATE_DIR)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(content)
+    return Path(name)
+
+
+def current_addresses(namespace, interface, family):
+    data = json.loads(netns(namespace, "ip", "-j", family, "addr", "show", "dev", interface).stdout)
+    if len(data) != 1:
+        raise SwitchError("Could not inspect the WireGuard interface addresses.")
+    return [f"{item['local']}/{item['prefixlen']}" for item in data[0].get("addr_info", [])
+            if item.get("scope") == "global"]
+
+
+def interface_mtu(namespace, interface):
+    data = json.loads(netns(namespace, "ip", "-j", "link", "show", "dev", interface).stdout)
+    if len(data) != 1 or not isinstance(data[0].get("mtu"), int):
+        raise SwitchError("Could not inspect the WireGuard interface MTU.")
+    return data[0]["mtu"]
+
+
+def replace_addresses(namespace, interface, ipv4, ipv6):
+    netns(namespace, "ip", "-4", "addr", "flush", "dev", interface, "scope", "global")
+    netns(namespace, "ip", "-6", "addr", "flush", "dev", interface, "scope", "global")
+    for address in ipv4:
+        netns(namespace, "ip", "-4", "addr", "add", address, "dev", interface)
+    for address in ipv6:
+        netns(namespace, "ip", "-6", "addr", "add", address, "dev", interface)
+
+
+def endpoint_exception(namespace, direct_interface, firewall, endpoint, enable):
+    host, port = endpoint
+    family = ipaddress.ip_address(host).version
+    comment = "vpngo-switch-" + hashlib.sha256(f"{host}:{port}".encode()).hexdigest()[:12]
+    if firewall == "nft":
+        rules = netns(namespace, "nft", "-a", "list", "chain", "inet", namespace, "output").stdout
+        handles = [match.group(1) for line in rules.splitlines() if comment in line
+                   if (match := re.search(r"# handle (\d+)", line))]
+        if enable and not handles:
+            netns(namespace, "nft", "insert", "rule", "inet", namespace, "output",
+                  "oifname", f'"{direct_interface}"', "ip6" if family == 6 else "ip",
+                  "daddr", host, "udp", "dport", str(port), "accept", "comment", f'"{comment}"')
+        elif not enable:
+            for handle in handles:
+                netns(namespace, "nft", "delete", "rule", "inet", namespace,
+                      "output", "handle", handle)
+    else:
+        tool = "ip6tables" if family == 6 else "iptables"
+        specification = ("OUTPUT", "-o", direct_interface, "-d", host, "-p", "udp",
+                         "--dport", str(port), "-m", "comment", "--comment", comment, "-j", "ACCEPT")
+        exists = netns(namespace, tool, "-C", *specification, check=False).returncode == 0
+        if enable and not exists:
+            netns(namespace, tool, "-I", "OUTPUT", "1", *specification[1:])
+        elif not enable and exists:
+            netns(namespace, tool, "-D", *specification)
+
+
+def await_handshake(namespace, interface, public_key, started_at):
+    for _ in range(12):
+        netns(namespace, "ping", "-n", "-c", "1", "-W", "1", "1.1.1.1", check=False)
+        output = netns(namespace, "wg", "show", interface, "latest-handshakes").stdout
+        for line in output.splitlines():
+            fields = line.split()
+            if len(fields) == 2 and fields[0] == public_key and int(fields[1]) >= started_at - 1:
+                return True
+        time.sleep(0.25)
+    return False
+
+
+def switch_profile(namespace, app_name, interface, direct_interface, firewall, profile_name):
+    session = load_session(namespace)
+    if not session.get("killswitch", False):
+        raise SwitchError("Live switching requires the kill switch. Enable it and restart the app first.")
+    if allowed(namespace, direct_interface, firewall) or rule_present(namespace, "-4", RULE_PRIORITY):
+        raise SwitchError("Turn the VPN on before switching profiles.")
+    profile_name = profile_key(profile_name)
+    if session["profile"] == profile_name:
+        print(f"{app_name} already uses profile '{profile_name}'.")
+        return
+    new_profile = parse_wireguard(resolve(profile_name))
+    if session.get("dns") and not new_profile["dns"]:
+        raise SwitchError("The new profile needs a DNS address while DNS isolation is enabled.")
+    if not shutil.which("ping"):
+        raise SwitchError(tr("missing_command", name="ping"))
+    endpoint = resolved_endpoint(new_profile)
+    old_exception = session.get("endpoint_exception")
+    old_endpoint = tuple(old_exception) if old_exception else None
+    old_config = netns(namespace, "wg", "showconf", interface).stdout
+    fwmark = netns(namespace, "wg", "show", interface, "fwmark").stdout.strip()
+    old_ipv4 = current_addresses(namespace, interface, "-4")
+    old_ipv6 = current_addresses(namespace, interface, "-6")
+    old_mtu = interface_mtu(namespace, interface)
+    old_ipv6_route = netns(namespace, "ip", "-6", "route", "show", "table", WG_TABLE).stdout
+    system_file, _backup = dns_paths(namespace)
+    old_dns = system_file.read_text()
+    new_dns = "".join(f"nameserver {server}\n" for server in (new_profile["dns"] or ["1.1.1.1", "9.9.9.9"]))
+    new_config = private_temp(wireguard_contents(new_profile, fwmark, endpoint))
+    rollback_config = private_temp(old_config)
+    exception_added = endpoint != old_endpoint
+    rollback_errors = []
+    try:
+        if exception_added:
+            endpoint_exception(namespace, direct_interface, firewall, endpoint, True)
+        netns(namespace, "ip", "link", "set", "dev", interface, "down")
+        netns(namespace, "wg", "setconf", interface, str(new_config))
+        replace_addresses(namespace, interface, [new_profile["ipv4_cidr"]],
+                          [new_profile["ipv6_cidr"]] if new_profile["ipv6_cidr"] else [])
+        netns(namespace, "ip", "link", "set", "dev", interface, "mtu", str(new_profile["mtu"]))
+        write_dns(system_file, new_dns)
+        netns(namespace, "ip", "link", "set", "dev", interface, "up")
+        ensure_vpn_routes(namespace, interface)
+        if not new_profile["ipv6"]:
+            netns(namespace, "ip", "-6", "route", "del", "default", "dev", interface,
+                  "table", WG_TABLE, check=False)
+        route = netns(namespace, "ip", "-4", "route", "get", "1.1.1.1").stdout
+        if f"dev {interface}" not in route:
+            raise SwitchError("The new profile is not the active route.")
+        if not await_handshake(namespace, interface, new_profile["public_key"], int(time.time())):
+            raise SwitchError("The new WireGuard endpoint did not complete a handshake.")
+        reconnect(namespace)
+        if old_endpoint and old_endpoint != endpoint:
+            endpoint_exception(namespace, direct_interface, firewall, old_endpoint, False)
+        session["profile"] = profile_name
+        session["endpoint_exception"] = list(endpoint)
+        save_session(namespace, session)
+        print(f"{app_name} switched to profile '{profile_name}'. Existing TCP connections were reset.")
+    except Exception as error:
+        for restore in (
+            lambda: netns(namespace, "ip", "link", "set", "dev", interface, "down"),
+            lambda: netns(namespace, "wg", "setconf", interface, str(rollback_config)),
+            lambda: replace_addresses(namespace, interface, old_ipv4, old_ipv6),
+            lambda: netns(namespace, "ip", "link", "set", "dev", interface, "mtu", str(old_mtu)),
+            lambda: write_dns(system_file, old_dns),
+            lambda: netns(namespace, "ip", "link", "set", "dev", interface, "up"),
+            lambda: ensure_vpn_routes(namespace, interface),
+        ):
+            try:
+                restore()
+            except Exception as restore_error:
+                rollback_errors.append(str(restore_error))
+        if "default" not in old_ipv6_route:
+            try:
+                netns(namespace, "ip", "-6", "route", "del", "default", "dev", interface,
+                      "table", WG_TABLE, check=False)
+            except Exception as restore_error:
+                rollback_errors.append(str(restore_error))
+        if old_endpoint:
+            try:
+                endpoint_exception(namespace, direct_interface, firewall, old_endpoint, True)
+            except Exception as restore_error:
+                rollback_errors.append(str(restore_error))
+        if exception_added:
+            try:
+                endpoint_exception(namespace, direct_interface, firewall, endpoint, False)
+            except Exception as restore_error:
+                rollback_errors.append(str(restore_error))
+        if rollback_errors:
+            raise SwitchError(f"Switch failed ({error}); rollback needs repair. WireGuard snapshot: "
+                              f"{rollback_config}. Details: {'; '.join(rollback_errors)}") from error
+        raise SwitchError(f"Switch failed and the previous profile was restored: {error}") from error
+    finally:
+        new_config.unlink(missing_ok=True)
+        if not rollback_errors:
+            rollback_config.unlink(missing_ok=True)
+
+
+def start_app(app_name, app, profile="default"):
+    profile = profile_key(profile)
+    override = os.environ.get("VPNGO_WG_CONFIG") if profile == "default" else None
+    config = Path(override).expanduser() if override else resolve(profile)
+    if not config.is_file():
+        raise SwitchError(tr("missing_wg_file", path=config))
+    policy = assignment_for(app_name)
+    if policy["dns"] and not policy["killswitch"]:
+        raise SwitchError("DNS isolation requires the kill switch.")
+    dns_servers = parse_wireguard(config).get("dns", []) if policy["dns"] else []
+    if policy["dns"] and not dns_servers:
+        raise SwitchError("DNS isolation requires an IP address in the WireGuard profile's DNS field.")
+    for command in ("vopono", "pgrep", "nohup"):
+        if not shutil.which(command):
+            raise SwitchError(tr("missing_command", name=command))
+    if policy["dns"] and not shutil.which("bwrap"):
+        raise SwitchError(tr("missing_command", name="bwrap"))
+    nsswitch = isolated_nsswitch() if policy["dns"] else None
+    if subprocess.call(["sudo", "-v"]):
+        raise SwitchError(tr("authentication_failed"))
+    close_app(app["process"])
+    print(tr("starting", app=app_name), flush=True)
+    slug = re.sub(r"[^A-Za-z0-9]", "_", app_name)[:20]
+    namespace = f"vg_{slug}_{profile[:12]}_{os.getpid()}_{int(time.time())}"
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE_DIR, 0o700)
+    log_path = STATE_DIR / "start.log"
+    descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "a") as output:
+        launcher = dns_launcher(namespace, nsswitch, app["launch"]) if policy["dns"] else None
+        command = launch_command(config, namespace, app["launch"], policy,
+                                 dns_servers[0] if dns_servers else None, launcher)
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+            preexec_fn=os.setpgrp,
+        )
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        status = run("vopono", "status", "--json", check=False)
+        if status.returncode == 0:
+            try:
+                data = json.loads(status.stdout)
+                for item in data.get("namespaces", []):
+                    if item.get("id") == namespace and item.get("applications"):
+                        print(tr("started", app=app_name))
+                        save_session(namespace, {
+                            "app": app_name, "profile": profile, "killswitch": policy["killswitch"],
+                            "dns": policy["dns"], "endpoint_exception": None,
+                            "executable": app["launch"],
+                        })
+                        return 0
+            except json.JSONDecodeError:
+                pass
+        if process.poll() is not None:
+            break
+        time.sleep(0.3)
+    raise SwitchError(tr("start_failed", path=log_path))
+
+
+def setup_wireguard(path, profile="default"):
+    source = register(path, profile)
+    print(tr("profile_configured", profile=profile_key(profile), path=source))
+
+
+def main():
+    if len(sys.argv) >= 2 and sys.argv[1] in {
+        "profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper"
+    }:
+        from commands import main as shared_main
+        return shared_main(sys.argv[1:])
+    if len(sys.argv) < 2 or len(sys.argv) > 4:
+        print(tr("usage"), file=sys.stderr)
+        return 2
+    if sys.argv[1] == "profiles":
+        if len(sys.argv) != 2:
+            print(tr("usage"), file=sys.stderr)
+            return 2
+        print("\n".join(sorted(load_profiles())) or tr("profiles_none"))
+        return 0
+    if sys.argv[1] == "config":
+        if len(sys.argv) != 3:
+            print(tr("usage"), file=sys.stderr)
+            return 2
+        print(tr("path_configured", path=add_path(sys.argv[2])))
+        return 0
+    if sys.argv[1] == "setup":
+        if len(sys.argv) not in {3, 4}:
+            print(tr("usage"), file=sys.stderr)
+            return 2
+        setup_wireguard(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else "default")
+        return 0
+    app_name = sys.argv[1]
+    mode = sys.argv[2] if len(sys.argv) == 3 else "start"
+    if len(sys.argv) == 4 and sys.argv[2] not in {"start", "switch"}:
+        print(tr("usage"), file=sys.stderr)
+        return 2
+    if len(sys.argv) == 4:
+        mode = sys.argv[2]
+    if mode not in {"start", "stop", "on", "off", "status", "switch"} or (mode == "switch" and len(sys.argv) != 4):
+        print(tr("usage"), file=sys.stderr)
+        return 2
+    if mode == "start":
+        app = find(app_name)
+        return start_app(app_name, app, sys.argv[3] if len(sys.argv) == 4 else "default")
+    if mode == "stop":
+        try:
+            app = find(app_name)
+        except AppError:
+            app = None
+        return stop_app(app_name, app["launch"] if app else None)
+    app = find(app_name)
+    namespace = app_namespace(app_name, app["launch"], allow_missing=mode == "status")
+    if namespace is None:
+        print(f"{app_name}: {tr('status_no_session')}")
+        return 0
+    run("sudo", "-v")
+    wg_interface, direct_interface, firewall = network_details(namespace)
+    if mode == "switch":
+        switch_profile(namespace, app_name, wg_interface, direct_interface, firewall, sys.argv[3])
+    elif mode == "off":
+        turn_off(namespace, wg_interface, direct_interface, firewall, app_name)
+    elif mode == "on":
+        turn_on(namespace, wg_interface, direct_interface, firewall, app_name)
+    else:
+        is_off = allowed(namespace, direct_interface, firewall)
+        direct_rule = rule_present(namespace, "-4", RULE_PRIORITY)
+        ipv6_block = rule_present(namespace, "-6", RULE_PRIORITY)
+        route = netns(namespace, "ip", "-4", "route", "get", "1.1.1.1").stdout.strip()
+        route_via_wg = f"dev {wg_interface}" in route
+        route_direct = f"dev {direct_interface}" in route
+        mode_name = tr("status_off") if is_off and direct_rule and ipv6_block and route_direct else (
+            tr("status_on") if not is_off and not direct_rule and not ipv6_block and route_via_wg
+            else tr("status_partial")
+        )
+        print(f"{app_name}: {mode_name}")
+        session_file = session_path(namespace)
+        if session_file.is_file():
+            session = load_session(namespace)
+            print(f"Active profile: {session['profile']}")
+            print(f"Session policy: kill switch {'on' if session['killswitch'] else 'off'}, "
+                  f"DNS isolation {'on' if session['dns'] else 'off'}")
+        print(f"{tr('ipv4_route')}: {route}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (SwitchError, AppError, OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+        print(f"vpngo: {error}", file=sys.stderr)
+        sys.exit(1)

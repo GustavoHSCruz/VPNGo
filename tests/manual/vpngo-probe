@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Manual namespace probe: print the current public IPv4 address repeatedly."""
+
+import ctypes
+import datetime
+import signal
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+
+running = True
+process_name = Path(sys.argv[0]).name[:15]
+
+
+def stop(_signal, _frame):
+    global running
+    running = False
+
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+try:
+    # Give the interpreter a distinct process name so vpngo can stop it.
+    ctypes.CDLL(None).prctl(15, process_name.encode("utf-8"), 0, 0, 0)
+except (AttributeError, OSError):
+    pass
+
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+while running:
+    try:
+        with opener.open("https://api.ipify.org", timeout=8) as response:
+            address = response.read(64).decode("ascii", errors="replace").strip()
+        outcome = address
+    except Exception as error:
+        outcome = f"request failed: {type(error).__name__}: {error}"
+    print(f"{datetime.datetime.now(datetime.timezone.utc).isoformat()} {process_name}: {outcome}", flush=True)
+    for _ in range(10):
+        if not running:
+            break
+        time.sleep(1)

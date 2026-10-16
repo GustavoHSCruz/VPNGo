@@ -1,0 +1,19 @@
+#!/bin/sh
+# Keep glibc DNS lookups inside the application's network namespace.
+set -eu
+
+[ "$#" -ge 2 ] || { printf '%s\n' 'Usage: dns-launch <nsswitch.conf> <application> [args...]' >&2; exit 2; }
+nsswitch=$1
+shift
+
+set -- -- "$@"
+if [ -d /run/systemd/resolve ]; then
+    set -- --tmpfs /run/systemd/resolve "$@"
+fi
+if [ -d /var/run/nscd ]; then
+    set -- --tmpfs /var/run/nscd "$@"
+fi
+set -- bwrap --bind / / --proc /proc --dev-bind /dev /dev \
+    --ro-bind "$nsswitch" /etc/nsswitch.conf "$@"
+
+exec "$@"

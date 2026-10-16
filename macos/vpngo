@@ -1,0 +1,122 @@
+#!/bin/sh
+# vpngo for macOS. VPNGO_MIHOMO can point to a custom binary.
+set -eu
+
+project=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+state="$project/state"
+python=${VPNGO_PYTHON:-python3}
+
+if [ "$#" -gt 0 ]; then
+    case "$1" in
+        profile|assign|start|stop|switch|status|on|off|policy|helper)
+            exec "$python" "$project/shared/commands.py" "$@" ;;
+    esac
+fi
+
+usage() {
+    printf '%s\n' 'Usage: vpngo config <path> | setup <wireguard.conf> [profile] | profiles | <application> [start [profile]|stop|on|off|status]' >&2
+    exit 2
+}
+
+if [ "$#" -eq 2 ] && [ "$1" = config ]; then
+    "$python" "$project/shared/apps.py" config "$2"
+    exit
+fi
+if [ "$#" -eq 1 ] && [ "$1" = profiles ]; then
+    "$python" "$project/shared/profiles.py" list
+    exit
+fi
+if [ "$#" -ge 2 ] && [ "$#" -le 3 ] && [ "$1" = setup ]; then
+    if [ "$#" -eq 3 ]; then
+        "$python" "$project/shared/generate_mihomo.py" "$2" "$3"
+    else
+        "$python" "$project/shared/generate_mihomo.py" "$2"
+    fi
+    exit
+fi
+[ "$#" -ge 1 ] && [ "$#" -le 3 ] || usage
+application=$1
+action=${2:-start}
+[ "$#" -lt 3 ] || [ "$action" = start ] || usage
+
+case "$action" in
+    start)
+        [ -f "$state/controller.json" ] || { printf '%s\n' "Run 'vpngo setup <wireguard.conf>' first." >&2; exit 1; }
+        app_json=$("$python" "$project/shared/managed.py" prepare "$application" "${3:-default}")
+        launch=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["launch"])')
+        process=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["process"])')
+        mihomo=${VPNGO_MIHOMO:-$(command -v mihomo || true)}
+        [ -n "$mihomo" ] && [ -x "$mihomo" ] || { printf '%s\n' 'mihomo executable not found.' >&2; exit 1; }
+        if ! "$python" "$project/shared/control.py" "$application" status >/dev/null 2>&1; then
+            sudo -v
+            nohup sudo -n "$mihomo" -d "$state" -f "$state/config.yaml" \
+                >> "$state/mihomo.log" 2>&1 < /dev/null &
+            ready=0
+            count=0
+            while [ "$count" -lt 30 ]; do
+                if "$python" "$project/shared/control.py" "$application" status >/dev/null 2>&1; then
+                    ready=1
+                    break
+                fi
+                sleep 1
+                count=$((count + 1))
+            done
+            [ "$ready" -eq 1 ] || { printf '%s\n' "Mihomo did not start. See $state/mihomo.log" >&2; exit 1; }
+        fi
+        "$python" "$project/shared/control.py" "$application" on
+        pkill -u "$(id -u)" -x "$process" 2>/dev/null || true
+        helper=${process%.*}
+        pkill -u "$(id -u)" -x "$helper Helper.*" 2>/dev/null || true
+        "$python" "$project/shared/control.py" "$application" reconnect >/dev/null
+        sleep 1
+        case "$launch" in
+            *.app) open -a "$launch" ;;
+            *) nohup "$launch" >> "$state/app.log" 2>&1 < /dev/null & ;;
+        esac
+        printf '%s\n' "$application started through the VPN."
+        ;;
+    on|off|status)
+        "$python" "$project/shared/control.py" "$application" "$action"
+        ;;
+    stop)
+        app_json=$("$python" "$project/shared/managed.py" inspect "$application")
+        if [ "$app_json" = null ]; then
+            printf '%s\n' "$application: already stopped."
+            exit 0
+        fi
+        process=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["process"])')
+        case "$process" in
+            python|python3|sh|bash|zsh|sudo|vopono|systemd|init|launchd|Finder|WindowServer|Dock|loginwindow)
+                printf '%s\n' "Refusing to close shared process '$process'." >&2
+                exit 1 ;;
+        esac
+        process_pattern=$(printf '%s' "$process" | "$python" -c 'import re,sys; print(re.escape(sys.stdin.read()))')
+        block_failed=0
+        "$python" "$project/shared/control.py" "$application" block || block_failed=1
+        pkill -TERM -u "$(id -u)" -x "$process_pattern" 2>/dev/null || true
+        helper_pattern=$(printf '%s' "${process%.*}" | "$python" -c 'import re,sys; print(re.escape(sys.stdin.read()))')
+        pkill -TERM -u "$(id -u)" -x "$helper_pattern Helper.*" 2>/dev/null || true
+        helper_names=$(printf '%s' "$app_json" | "$python" -c 'import json,sys,pathlib; print("\n".join(pathlib.Path(p).name for p in json.load(sys.stdin).get("helpers", [])))')
+        printf '%s\n' "$helper_names" | while IFS= read -r helper_name; do
+            [ -n "$helper_name" ] || continue
+            case "$helper_name" in
+                python|python3|sh|bash|zsh|sudo|vopono|systemd|init|launchd|Finder|WindowServer|Dock|loginwindow)
+                    continue ;;
+            esac
+            helper_name_pattern=$(printf '%s' "$helper_name" | "$python" -c 'import re,sys; print(re.escape(sys.stdin.read()))')
+            pkill -TERM -u "$(id -u)" -x "$helper_name_pattern" 2>/dev/null || true
+        done
+        count=0
+        while pgrep -u "$(id -u)" -x "$process_pattern" >/dev/null 2>&1 && [ "$count" -lt 6 ]; do
+            sleep 1
+            count=$((count + 1))
+        done
+        pkill -KILL -u "$(id -u)" -x "$process_pattern" 2>/dev/null || true
+        if pgrep -u "$(id -u)" -x "$process_pattern" >/dev/null 2>&1 || [ "$block_failed" -ne 0 ]; then
+            printf '%s\n' "$application: stop incomplete; the route remains blocked if Mihomo accepted it." >&2
+            exit 1
+        fi
+        printf '%s\n' "$application: application closed; its Mihomo route is blocked. Other applications stay connected."
+        ;;
+    *) usage ;;
+esac

@@ -1,0 +1,310 @@
+# vpngo
+
+Route selected desktop applications through different WireGuard VPN profiles while every other application keeps using your usual connection.
+
+```text
+browser-app  ──► germany.conf ──► VPN exit A
+chat-app     ──► brazil.conf  ──► VPN exit B
+other apps   ──► usual network
+```
+
+vpngo is a small command-line launcher. You register WireGuard `.conf` files as named profiles, assign a profile to an application, and start the application through vpngo. Only that application's traffic goes through the tunnel; the rest of the system is untouched. You can run several applications on different profiles at the same time and switch one of them to another exit while it is running.
+
+The project was built and tested with the **free WireGuard configurations from Proton VPN**. Any provider works, paid or free, including a WireGuard server you host yourself, if it gives you a standard WireGuard client file that meets the [profile requirements](#profile-requirements).
+
+## First Time
+
+Follow the step-by-step guide for your system. It covers everything from installing what vpngo needs to checking that the app is on the VPN.
+
+| System | English | Português |
+| --- | --- | --- |
+| Linux | [Guide](docs/HOWTO.md#2-linux) | [Guia](docs/HOWTO.pt-BR.md#2-linux) |
+| Windows | [Guide](docs/HOWTO.md#3-windows) | [Guia](docs/HOWTO.pt-BR.md#3-windows) |
+| macOS | [Guide](docs/HOWTO.md#4-macos) | [Guia](docs/HOWTO.pt-BR.md#4-macos) |
+
+Every system starts with the same first step: [get your VPN file](docs/HOWTO.md#1-get-your-vpn-file) ([pt-BR](docs/HOWTO.pt-BR.md#1-pegue-seu-arquivo-de-vpn)).
+
+## Contents
+
+- [First Time](#first-time)
+- [How it works](#how-it-works)
+- [Project status](#project-status)
+- [Install](#install)
+- [Get a WireGuard profile](#get-a-wireguard-profile)
+  - [Free Proton VPN configuration (reference setup)](#free-proton-vpn-configuration-reference-setup)
+  - [Paid plans and other providers](#paid-plans-and-other-providers)
+  - [Provider compatibility](#provider-compatibility)
+  - [Profile requirements](#profile-requirements)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+- [Routing and isolation](#routing-and-isolation)
+- [Files, secrets and language](#files-secrets-and-language)
+- [Development](#development)
+- [Contributing](#contributing)
+
+## How it works
+
+| | Linux | macOS and Windows |
+| --- | --- | --- |
+| Routing engine | [vopono](https://github.com/jamesmcm/vopono) | [Mihomo](https://github.com/MetaCubeX/mihomo) |
+| Per-app mechanism | One network namespace and WireGuard interface per started app | One shared TUN with a WireGuard outbound per profile and a selector per app, matched by process rules |
+| What `start` does | Closes running instances, then launches the app inside its own namespace | Closes running instances, regenerates the Mihomo config and launches the app |
+
+The launchers for each system (`linux/vpngo`, `macos/vpngo`, `windows/vpngo.ps1`) share the same profile, assignment and app-discovery code in `shared/`, so the commands are the same everywhere.
+
+## Project status
+
+> **Linux is tested; macOS and Windows still need device testing.**
+>
+> Linux application routing and `on`/`off` reconnection were tested on Arch Linux. During a live Linux switch between two WireGuard peers, the same probe process and namespace kept running while the public IPv4 changed from the first VPN exit to the second. One DNS lookup failed during the transition, and the next request recovered without a manual reload. Persistent assignments, multi-profile Mihomo config generation, selection logic and Linux rollback have automated tests. Mihomo v1.19.32 accepts a generated two-profile configuration. Simultaneous live tunnels on macOS and Windows have not been run on real devices. See [platform limits](#platform-limits).
+
+## Install
+
+Clone the repository and run the installer for your system from the checkout:
+
+| System | Requirements | Installer |
+| --- | --- | --- |
+| Linux | Python 3, vopono, `wg`, `ip`, `ss`, `pgrep`, `ping`, `nft` or `iptables`; `bwrap` for optional DNS isolation | `./linux/install.sh` |
+| macOS | Python 3, Mihomo on `PATH` or `VPNGO_MIHOMO=/absolute/path/mihomo` | `./macos/install.sh` |
+| Windows | Python 3, `mihomo.exe` on `PATH` or `VPNGO_MIHOMO` | `powershell -ExecutionPolicy Bypass -File .\windows\install.ps1` |
+
+```sh
+git clone https://github.com/GustavoHSCruz/VPNGo.git
+cd VPNGo
+./linux/install.sh      # or ./macos/install.sh
+```
+
+What each installer does, and which permission vpngo asks for later:
+
+- **Linux** (`linux/install.sh`): checks the dependencies and links `vpngo` into `~/.local/bin`. `vpngo start` asks for your password with `sudo` to create the app's network namespace.
+- **macOS** (`macos/install.sh`): links `vpngo` into `~/.local/bin`. `vpngo start` asks for your password with `sudo` to start Mihomo.
+- **Windows** (`windows/install.ps1`): creates `vpngo.cmd` in `%USERPROFILE%\bin` and adds that folder to your user `PATH`. `vpngo start` opens the Windows permission prompt to run Mihomo as administrator.
+
+None of the installers needs administrator rights. The command runs from the checkout, so keep the checkout where it is. Open a new terminal if `vpngo` is not found.
+
+The [step-by-step guide](docs/HOWTO.md) ([Português](docs/HOWTO.pt-BR.md)) has complete instructions for each system: dependencies with copy-and-paste commands, what each installer does, the permissions it asks for, and troubleshooting.
+
+## Get a WireGuard profile
+
+vpngo does not create VPN accounts or keys. It uses a WireGuard client file exported by your VPN provider. Each `.conf` file is one profile, meaning one VPN exit.
+
+### Free Proton VPN configuration (reference setup)
+
+The project was developed against Proton VPN's free plan, which can export WireGuard files for its free servers. To get one:
+
+1. Create a free account at [protonvpn.com](https://protonvpn.com) if you do not have one.
+2. Sign in at [account.protonvpn.com](https://account.protonvpn.com).
+3. Open **Downloads** and scroll to **WireGuard configuration**.
+4. Enter a name for the configuration, such as `vpngo-nl`. Proton uses this name to list the key, so you can revoke it later.
+5. Choose your platform (**GNU/Linux**, **macOS** or **Windows**). The file format is the same on every platform.
+6. Under VPN options, leave the defaults. Free accounts can only toggle **VPN Accelerator**; NetShield, Moderate NAT and port forwarding need a paid plan.
+7. Pick a server from the free server list and click **Create**. When the file is ready, download it and save it as a `.conf` file.
+8. Repeat for each exit you want as a separate profile. Every file has its own private key.
+
+A Proton file looks like this (keys and addresses replaced):
+
+```ini
+[Interface]
+# Key for vpngo-nl
+# VPN Accelerator = on
+PrivateKey = <your-private-key>
+Address = 10.2.0.2/32
+DNS = 10.2.0.1
+
+[Peer]
+# NL-FREE#1
+PublicKey = <server-public-key>
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = <server-ip>:51820
+```
+
+Store the files outside the repository and readable only by you, then register them:
+
+```sh
+mkdir -p ~/.config/wireguard && chmod 700 ~/.config/wireguard
+mv ~/Downloads/vpngo-nl.conf ~/.config/wireguard/
+chmod 600 ~/.config/wireguard/*.conf
+vpngo profile add netherlands ~/.config/wireguard/vpngo-nl.conf
+```
+
+Free plan limits to keep in mind:
+
+- **Simultaneous connections.** The free plan allows a very small number of simultaneous VPN connections (one at the time of writing). Running two apps on two free profiles at the same time can exceed it; the second tunnel may fail its handshake or drop the first. Check Proton's current plan terms.
+- **Server choice.** Free files only work with free servers. Choose the country when you create the file; you cannot change it later by editing the file.
+- **Key lifetime.** The account page lists the configurations you created. If a profile stops completing handshakes, check whether its key was revoked or expired there, then create a new file and run `vpngo profile add` with the same name to replace it.
+
+Proton's own guide is at [How to download WireGuard configuration files](https://protonvpn.com/support/wireguard-configurations/).
+
+### Paid plans and other providers
+
+Paid Proton plans and other providers are supported if they export a standard WireGuard client file. Most providers that support WireGuard have a configuration generator in the account area or let you build a file manually. A self-hosted WireGuard server also works. vpngo does not depend on anything specific to Proton.
+
+- **Paid Proton plans** use the same download page. They add more servers and options such as NetShield and port forwarding. Port forwarding needs an application that can use it; vpngo only routes the traffic.
+- **More simultaneous profiles.** With a plan that allows several connections, you can run one app per profile at the same time. On Linux each profile lives in its own namespace, so profiles with the same `Address` do not collide. If two profiles on macOS or Windows fail together, give the second file a different tunnel address, as Proton's guide recommends for multiple tunnels (for Proton: `Address = 10.3.0.2/32` and `DNS = 10.3.0.1`). Only do this with addresses your provider accepts.
+- **Other protocols are not supported.** OpenVPN, IKEv2 and proprietary apps that do not export a WireGuard file cannot be used. Only the WireGuard protocol is supported.
+
+### Provider compatibility
+
+Some popular VPN providers, in no particular order. Only Proton VPN has been tested with vpngo so far; the other rows show whether the provider documents how to get a WireGuard file. Reports from other providers are welcome (see [Contributing](#contributing)).
+
+| Provider | Tested | Works | Errors found | WireGuard file documentation |
+| --- | --- | --- | --- | --- |
+| Proton VPN | Yes (free plan, Linux) | Yes | 0 | [Yes](https://protonvpn.com/support/wireguard-configurations/) |
+| NordVPN | No | — | — | Yes: Nord Account → manual setup ([report](https://www.techradar.com/vpn/vpn-services/no-more-scripts-nordvpn-finally-lets-you-download-wireguard-files-directly-and-it-could-make-your-router-up-to-five-times-faster)) |
+| ExpressVPN | No | — | — | None found |
+| Surfshark | No | — | — | [Yes](https://support.surfshark.com/hc/en-us/articles/32395023041810-How-to-set-up-WireGuard-on-Raspberry-Pi) |
+| CyberGhost | No | — | — | No: [WireGuard only through its apps](https://support.cyberghostvpn.com/hc/en-us/articles/360015810460-Discover-More-About-the-WireGuard-VPN-Protocol) |
+| Private Internet Access | No | — | — | Partial: [official scripts](https://github.com/pia-foss/manual-connections) create the file |
+| Mullvad | No | — | — | [Yes](https://mullvad.net/help/easy-wireguard-mullvad-setup-linux/) |
+| IPVanish | No | — | — | [Yes](https://www.ipvanish.com/blog/generate-wireguard-configurations/) |
+| Windscribe | No | — | — | [Yes, paid plans only](https://windscribe.com/support/article/103/where-do-i-access-my-wireguard-configs) |
+| PureVPN | No | — | — | [Yes](https://purevpn2.helpjuice.com/en_US/linux/how-to-setup-wireguard-on-linux); the file must be used within minutes of download |
+
+Errors found counts problems seen while using that provider's files with vpngo. A provider without a WireGuard file cannot be used, even on a paid plan.
+
+### Profile requirements
+
+`vpngo profile add` checks the file and refuses it if any of these rules fails:
+
+| Section | Field | Requirement |
+| --- | --- | --- |
+| `[Interface]` | `PrivateKey` | Required; a valid 32-byte base64 WireGuard key. |
+| `[Interface]` | `Address` | Required; must include an IPv4 address. An IPv6 address is optional. |
+| `[Interface]` | `DNS` | Optional. IP entries are used; search domains are ignored. **Required** for Linux DNS isolation (`policy <app> dns on`). |
+| `[Interface]` | `MTU` | Optional; 576–9000, default 1420. |
+| `[Peer]` | — | Exactly one `[Peer]` section. Files with several peers are rejected. |
+| `[Peer]` | `PublicKey` | Required; a valid WireGuard key. |
+| `[Peer]` | `AllowedIPs` | Required; must include `0.0.0.0/0` so all of the app's IPv4 traffic goes through the tunnel. `::/0` is recommended. |
+| `[Peer]` | `Endpoint` | Required; `host:port` or `[IPv6]:port`. A hostname is resolved before connecting. |
+| `[Peer]` | `PresharedKey` | Optional; validated when present. |
+| `[Peer]` | `PersistentKeepalive` | Optional; 0–65535. |
+
+A file that imports and connects in the official `wg-quick` or WireGuard app and meets these rules should work. A split-tunnel file whose `AllowedIPs` covers only some networks is rejected on purpose, because vpngo expects the app's whole route to go through the VPN.
+
+## Quick start
+
+```sh
+vpngo profile add germany /path/to/de.conf
+vpngo profile add brazil /path/to/br.conf
+vpngo profile list
+
+vpngo assign browser-app germany
+vpngo assign chat-app brazil
+vpngo start browser-app
+vpngo start chat-app
+
+vpngo status browser-app
+vpngo switch browser-app brazil
+vpngo off browser-app
+vpngo on browser-app
+vpngo stop browser-app
+```
+
+Replace `browser-app` and `chat-app` with the executable names of your applications.
+
+- `assign` saves the profile, and later starts reuse it.
+- `start` closes running instances of the application and launches it on its saved profile, or on the profile you pass as a second argument.
+- `switch` changes the profile of one running application without restarting it. The application has to reconnect its own connections. On Linux, vpngo checks the new WireGuard handshake before it commits the change and rolls back on failure.
+- Other managed applications keep their own routes.
+
+If vpngo cannot find the executable, register the executable or the folder that contains it, then try again:
+
+```sh
+vpngo config /path/to/app/bin
+# or: vpngo config /path/to/app/executable
+```
+
+Keep the original `.conf` files at their registered paths. vpngo stores their paths, not copies.
+
+## Commands
+
+| Command | Effect |
+| --- | --- |
+| `vpngo profile add <name> <file.conf>` | Register or update a named WireGuard profile. |
+| `vpngo profile list` | List registered profiles. |
+| `vpngo assign <app> <profile>` | Save the profile used by future `start` commands. |
+| `vpngo start <app> [profile]` | Close and launch the app on its saved or specified profile. |
+| `vpngo stop <app>` | Close the app and end its managed VPN session. On macOS/Windows, block that app's selector while leaving Mihomo available to others. |
+| `vpngo switch <app> <profile>` | Change a running app's profile and save the new assignment after success. |
+| `vpngo status <app>` | Show the app's active route and saved settings. |
+| `vpngo off <app>` / `vpngo on <app>` | Intentionally select the direct route, or return to the assigned VPN. |
+| `vpngo policy <app> killswitch on\|off` | Set the Linux per-app fail-closed policy for the next start. Default: on. |
+| `vpngo policy <app> dns on\|off` | Set Linux resolver isolation for the next start. Default: off; needs the kill switch and a DNS IP in the profile. |
+| `vpngo helper add <app> <executable>` | Register a known helper executable for Mihomo process matching. |
+| `vpngo config <path>` | Register an executable, executable folder, or macOS `.app` bundle. |
+
+The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app-first form still work. On Windows, run the commands in PowerShell.
+
+## Routing and isolation
+
+| Capability | Linux | macOS and Windows |
+| --- | --- | --- |
+| Simultaneous profiles | One vopono namespace and WireGuard interface per started app | One Mihomo TUN with separate WireGuard outbounds and per-app selectors |
+| Live profile switch | Reconfigure only that namespace; verify handshake and roll back on failure | Change only that app's Mihomo selector and close its attributed connections |
+| Kill switch | vopono firewall is on by default; configurable per app | **Not available as a strict per-app guarantee** with this backend; `policy ... killswitch on` is rejected |
+| DNS isolation | Optional namespace DNS plus a private glibc/NSS resolver view; see limits below | **Not available as a strict per-app guarantee**; `policy ... dns on` is rejected |
+| Child and helper traffic | Children spawned inside the namespace inherit it | Main executable and registered helper paths get rules; process attribution is best effort |
+
+`off` explicitly selects the direct route. While it is active, the Linux `switch` command refuses to change profiles; run `on` first. Policies take effect on the next `start`.
+
+`stop` closes the application. On Linux, vopono tears down its namespace and WireGuard session. On macOS/Windows, vpngo closes the process and its attributed connections and leaves a `REJECT` selector for that app; the shared Mihomo TUN keeps serving other managed apps. `start` reactivates the app. The profile assignment stays saved.
+
+### Platform limits
+
+- **Linux namespaces.** Ordinary child processes stay on the same network, but a program that hands work to a service outside the namespace may use that service's route. DNS isolation covers resolver calls that use the app's glibc/NSS view; embedded resolvers, DoH, IPC and external services can bypass it. The kill switch relies on vopono's firewall and should be validated for your app and configuration.
+- **Mihomo process rules (macOS/Windows).** Routing depends on process attribution. An unmatched helper, a failed lookup or the routing engine stopping can let traffic go direct. `vpngo helper add` improves matching but does not make the setup fail-closed. A true system-enforced per-app guarantee would need native OS filtering or VPN integration.
+- **Reconnection.** Existing connections may reconnect slowly or stay disconnected, because retry behavior belongs to the application. vpngo closes attributed Mihomo connections or Linux namespace TCP sockets, but it cannot force every program to retry. When it matters, check the public IP and DNS from inside the application.
+- **Untested launchers.** Windows and macOS behavior has not been verified on real devices. Different executables with the same process name may collide in Mihomo rules; vpngo rejects known conflicts when it prepares an app.
+- **Privacy scope.** vpngo changes routing only. Accounts, cookies, device identifiers and the VPN provider itself may still identify your activity.
+
+## Files, secrets and language
+
+| What | Linux / macOS | Windows |
+| --- | --- | --- |
+| Profiles, app paths, assignments, policies | `~/.config/vpngo/` | `%APPDATA%\vpngo\` |
+| Linux session logs and metadata | `~/.local/state/vpngo/` | — |
+| Generated Mihomo config and controller secret | `state/` in the checkout | `state\` in the checkout |
+
+`.conf` files, `state/config.yaml` and `state/controller.json` contain private keys or secrets. The repository's `.gitignore` excludes `*.conf`, `*.key`, `*.wg`, logs and `state/`; still, never commit, paste or attach them. vpngo writes its registry files with owner-only permissions.
+
+Messages default to English (en-US). Set `VPNGO_LANG=pt-BR` for Portuguese messages (`$env:VPNGO_LANG = 'pt-BR'` in PowerShell). `VPNGO_MIHOMO` and `VPNGO_PYTHON` select custom Mihomo and Python binaries.
+
+## Development
+
+```text
+linux/      Linux launcher (vopono), installer and DNS-isolation helper
+macos/      macOS launcher and installer
+windows/    PowerShell launcher, cmd shim and installer
+shared/     Profiles, assignments, app discovery, Mihomo config generation, i18n
+tests/      Automated tests and a manual probe app for live route checks
+docs/       Setup guides in English and Portuguese
+```
+
+The automated tests need no VPN connection:
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+To check a live switch on Linux without closing one of your applications, use the bundled probe. It logs its public IP about every ten seconds:
+
+```sh
+vpngo config "$PWD/tests/manual/vpngo-probe"
+vpngo assign vpngo-probe netherlands
+vpngo start vpngo-probe
+vpngo switch vpngo-probe germany
+tail -n 12 ~/.local/state/vpngo/start.log
+vpngo stop vpngo-probe
+```
+
+After `switch`, the logged IP should become the new exit's IP. The [step-by-step guide](docs/HOWTO.md#7-problems-and-checks) shows how to run two probes in parallel.
+
+## Contributing
+
+Contributions are welcome, especially:
+
+- test reports from **macOS and Windows** devices;
+- reports from **other VPN providers and paid plans**: which provider, whether `profile add` accepted the file, and whether the route worked;
+- fixes for applications whose helpers escape the route.
+
+Include the OS, the routing engine version (vopono or Mihomo), the application, and the routes or public IPs you observed. **Remove private keys, preshared keys, endpoints you consider private and controller secrets** from every report.
