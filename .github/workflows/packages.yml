@@ -1,0 +1,38 @@
+name: Packages
+
+# Installs the published vpngo from the Homebrew tap and the Scoop bucket the
+# way users do, and checks that it is the latest release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  homebrew:
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          brew tap "$GITHUB_REPOSITORY_OWNER/vpngo"
+          brew trust "$GITHUB_REPOSITORY_OWNER/vpngo"
+          brew install vpngo
+          brew test vpngo
+          test "$(vpngo version)" = "vpngo ${latest#v}"
+
+  scoop:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - shell: pwsh
+        run: |
+          $Latest = (gh release view --repo $env:GITHUB_REPOSITORY --json tagName -q .tagName).TrimStart('v')
+          Invoke-Expression "& {$(Invoke-RestMethod https://get.scoop.sh)} -RunAsAdmin"
+          $env:PATH = "$HOME\scoop\shims;$env:PATH"
+          scoop bucket add vpngo "https://github.com/$env:GITHUB_REPOSITORY_OWNER/scoop-vpngo"
+          scoop install vpngo/vpngo
+          $Output = vpngo version
+          if ($Output -ne "vpngo $Latest") { throw "Expected vpngo $Latest, got: $Output" }

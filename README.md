@@ -99,7 +99,7 @@ powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 | Arch Linux, CachyOS, Manjaro | `curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/PKGBUILD` in an empty folder, then `makepkg -si`; install `vopono-bin` from the AUR first |
 | Ubuntu, Debian | `sudo apt install ./vpngo_<version>-1_all.deb`, downloaded from the release; install [vopono's `.deb`](https://github.com/jamesmcm/vopono/releases) first |
 | Fedora | `sudo dnf install ./vpngo-<version>-1.noarch.rpm`, downloaded from the release; install [vopono's `.rpm`](https://github.com/jamesmcm/vopono/releases) first |
-| macOS (Homebrew) | `brew install GustavoHSCruz/vpngo/vpngo` (also installs Mihomo) |
+| macOS (Homebrew) | `brew tap GustavoHSCruz/vpngo && brew trust GustavoHSCruz/vpngo && brew install vpngo` (also installs Mihomo; Homebrew asks you to trust a tap before installing from it) |
 | Windows (Scoop) | `scoop bucket add vpngo https://github.com/GustavoHSCruz/scoop-vpngo`, then `scoop install vpngo` (also installs Python and Mihomo) |
 
 Package managers install vpngo system-wide or in their own folders and update it with their usual upgrade command.

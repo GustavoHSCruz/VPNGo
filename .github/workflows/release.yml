@@ -275,6 +275,7 @@ jobs:
         name: Install from the tap
         run: |
           brew tap "$OWNER/vpngo"
+          brew trust "$OWNER/vpngo"
           brew install vpngo
           brew test vpngo
           test "$(vpngo version)" = "vpngo $VERSION"

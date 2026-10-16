@@ -235,7 +235,7 @@ Abra [api.ipify.org](https://api.ipify.org) no Firefox e no Edge. Os dois númer
 
 Dois limites para saber: não existe kill switch, então se o Mihomo parar, os aplicativos voltam para a sua conexão normal. E um aplicativo que abre programas auxiliares separados pode precisar de [configuração extra](#programas-auxiliares-windows-e-macos).
 
-> **Já usa o [Homebrew](https://brew.sh)?** `brew install GustavoHSCruz/vpngo/vpngo` instala o vpngo e o Mihomo; pule para o [passo 3](#passo-3-cadastre-seu-arquivo-de-vpn-2).
+> **Já usa o [Homebrew](https://brew.sh)?** `brew tap GustavoHSCruz/vpngo && brew trust GustavoHSCruz/vpngo && brew install vpngo` instala o vpngo e o Mihomo (o Homebrew só instala de um tap em que você confia); pule para o [passo 3](#passo-3-cadastre-seu-arquivo-de-vpn-2).
 
 ### Passo 1: Instale o que o vpngo precisa
 
