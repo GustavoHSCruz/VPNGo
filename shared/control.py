@@ -10,13 +10,13 @@ import urllib.request
 from pathlib import Path
 
 from apps import AppError, key
-from generate_mihomo import group_name, profile_proxy
+from generate_mihomo import STATE, group_name, profile_proxy
 from i18n import tr
 from managed import load_managed, save_managed
 from profiles import profile_key, resolve
 
 
-CONTROLLER = Path(__file__).resolve().parent.parent / "state" / "controller.json"
+CONTROLLER = STATE / "controller.json"
 
 
 def request(port, secret, method, path, payload=None):

@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Project = Split-Path -Parent $PSScriptRoot
-$State = Join-Path $Project 'state'
+$State = Join-Path $env:LOCALAPPDATA 'vpngo\mihomo'
 $Python = if ($env:VPNGO_PYTHON) { $env:VPNGO_PYTHON } else { 'python' }
 $Controller = Join-Path $Project 'shared/control.py'
 
@@ -109,7 +109,7 @@ try {
             & $Python $Controller $Application status *> $null
             if ($LASTEXITCODE -eq 0) { $Ready = $true; break }
         }
-        if (-not $Ready) { throw 'Mihomo did not start. Check its elevated window and state/config.yaml.' }
+        if (-not $Ready) { throw "Mihomo did not start. Check its elevated window and $State\config.yaml." }
     }
     Invoke-Control $Application 'on'
     Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Stop-Process -Force

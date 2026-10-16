@@ -12,7 +12,7 @@ while [ -L "$source" ]; do
     esac
 done
 project=$(CDPATH= cd -- "$(dirname -- "$source")/.." && pwd)
-state="$project/state"
+state="$HOME/.local/state/vpngo/mihomo"
 python=${VPNGO_PYTHON:-python3}
 
 if [ "$#" -gt 0 ]; then
@@ -50,7 +50,6 @@ action=${2:-start}
 
 case "$action" in
     start)
-        [ -f "$state/controller.json" ] || { printf '%s\n' "Run 'vpngo setup <wireguard.conf>' first." >&2; exit 1; }
         app_json=$("$python" "$project/shared/managed.py" prepare "$application" "${3:-default}")
         launch=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["launch"])')
         process=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["process"])')

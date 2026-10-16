@@ -14,9 +14,11 @@ import io
 import lzma
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -137,6 +139,33 @@ def compress(tar, suffix, epoch):
     raise ValueError(suffix)
 
 
+def linux_packages(items, version, epoch):
+    """Build the .deb and .rpm with nfpm from the same files as the Linux archives."""
+    nfpm = shutil.which(os.environ.get("NFPM", "nfpm"))
+    if not nfpm:
+        raise SystemExit("--linux-packages needs nfpm (https://nfpm.goreleaser.com) on PATH or in NFPM.")
+    with tempfile.TemporaryDirectory() as temporary:
+        root, out = Path(temporary) / "root", Path(temporary) / "out"
+        out.mkdir()
+        top = items[0][0].rstrip("/")
+        for name, mode, data in items:
+            path = root / "tree" / name[len(top) + 1:]
+            if data is None:
+                path.mkdir(parents=True, exist_ok=True)
+                path.chmod(mode)
+            else:
+                path.write_bytes(data)
+                path.chmod(mode)
+        for path in sorted(root.rglob("*"), reverse=True):  # Files before their folders.
+            os.utime(path, (epoch, epoch))
+        env = {**os.environ, "VPNGO_VERSION": version, "SOURCE_DATE_EPOCH": str(epoch)}
+        for packager in ("deb", "rpm"):
+            subprocess.run([nfpm, "package", "--config", str(ROOT / "packaging/nfpm.yaml"),
+                            "--packager", packager, "--target", f"{out}/"],
+                           check=True, env=env, cwd=root, stdout=subprocess.DEVNULL)
+        return {path.name: path.read_bytes() for path in sorted(out.iterdir())}
+
+
 def installer(name, version, repository):
     text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
     for placeholder in ("@VERSION@", "@REPOSITORY@"):
@@ -149,6 +178,8 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     cli.add_argument("--version", required=True, help="release version without the leading v, e.g. 1.2.3")
     cli.add_argument("--out", type=Path, default=ROOT / "dist", help="output directory (default: dist)")
+    cli.add_argument("--linux-packages", action="store_true",
+                     help="also build the .deb and .rpm packages (needs nfpm)")
     cli.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", DEFAULT_REPOSITORY),
                      help="GitHub owner/name the installers download from")
     args = cli.parse_args()
@@ -160,7 +191,7 @@ def main():
 
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    stale = [path for path in out.iterdir() if path.name.startswith("vpngo-") or
+    stale = [path for path in out.iterdir() if path.name.startswith(("vpngo-", "vpngo_")) or
              path.name in INSTALLERS or path.name == "SHA256SUMS"]
     for path in stale:
         path.unlink()
@@ -173,6 +204,8 @@ def main():
         tar = tar_bytes(items, epoch)
         for suffix in FORMATS:
             assets[f"{top}.{suffix}"] = zip_bytes(items, epoch) if suffix == "zip" else compress(tar, suffix, epoch)
+        if system == "linux" and args.linux_packages:
+            assets.update(linux_packages(items, args.version, epoch))
     for name in INSTALLERS:
         assets[name] = installer(name, args.version, args.repository)
 

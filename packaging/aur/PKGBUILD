@@ -1,0 +1,22 @@
+# Maintainer: GustavoHSCruz <66931989+GustavoHSCruz@users.noreply.github.com>
+pkgname=vpngo
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='Route selected applications through WireGuard VPN profiles'
+arch=('any')
+url='https://github.com/@REPOSITORY@'
+license=('Apache-2.0')
+depends=('python' 'vopono' 'wireguard-tools' 'iproute2' 'procps-ng' 'iputils')
+optdepends=('nftables: firewall backend for the kill switch'
+            'iptables: alternative firewall backend for the kill switch'
+            'bubblewrap: per-app DNS isolation')
+source=("$url/releases/download/v$pkgver/vpngo-$pkgver-linux.tar.gz")
+sha256sums=('@SHA256_LINUX_TAR_GZ@')
+
+package() {
+  cd "vpngo-$pkgver-linux"
+  install -d "$pkgdir/usr/lib/vpngo" "$pkgdir/usr/bin"
+  cp -a --no-preserve=ownership . "$pkgdir/usr/lib/vpngo/"
+  ln -s /usr/lib/vpngo/linux/vpngo "$pkgdir/usr/bin/vpngo"
+  install -Dm644 LICENSE NOTICE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

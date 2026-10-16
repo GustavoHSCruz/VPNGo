@@ -21,6 +21,14 @@ def config_dir():
     return base / "vpngo"
 
 
+def mihomo_dir():
+    """Mihomo's generated config and controller secret, outside the program folder
+    so package upgrades never remove them. The launchers use the same path."""
+    if os.name == "nt":
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local") / "vpngo" / "mihomo"
+    return Path.home() / ".local/state/vpngo/mihomo"
+
+
 REGISTRY = config_dir() / "apps.json"
 
 

@@ -1,0 +1,40 @@
+# .deb and .rpm packages for Linux. tools/build_release.py runs nfpm from a folder
+# whose tree/ holds the Linux archive's files, and sets VPNGO_VERSION.
+name: vpngo
+arch: all
+platform: linux
+version: ${VPNGO_VERSION}
+version_schema: semver
+release: 1
+section: net
+priority: optional
+maintainer: GustavoHSCruz <66931989+GustavoHSCruz@users.noreply.github.com>
+vendor: GustavoHSCruz
+homepage: https://github.com/GustavoHSCruz/VPNGo
+license: Apache-2.0
+description: |-
+  Route selected applications through WireGuard VPN profiles.
+  Each application started with vpngo gets its own network namespace and
+  WireGuard tunnel through vopono; other applications keep the usual connection.
+
+contents:
+  - src: tree/
+    dst: /usr/lib/vpngo
+    type: tree
+  - src: /usr/lib/vpngo/linux/vpngo
+    dst: /usr/bin/vpngo
+    type: symlink
+  - src: tree/LICENSE
+    dst: /usr/share/licenses/vpngo/LICENSE
+  - src: tree/NOTICE
+    dst: /usr/share/licenses/vpngo/NOTICE
+
+overrides:
+  deb:
+    depends: [python3, vopono, wireguard-tools, iproute2, procps, iputils-ping]
+    recommends: [nftables]
+    suggests: [bubblewrap]
+  rpm:
+    depends: [python3, vopono, wireguard-tools, iproute, procps-ng, iputils]
+    recommends: [nftables]
+    suggests: [bubblewrap]

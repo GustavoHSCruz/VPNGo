@@ -1,8 +1,14 @@
 name: Release
 
-# Pushing a tag such as v1.2.3 tests, builds, checks the installers on Linux,
-# macOS and Windows, then publishes the GitHub release. Running the workflow by
-# hand does everything except publishing.
+# Pushing a tag such as v1.2.3 tests, builds, checks every installer and
+# package, publishes the GitHub release, then updates the AUR package, the
+# Homebrew tap and the Scoop bucket. Running the workflow by hand does
+# everything up to (not including) publishing.
+#
+# Secrets used after publishing (each update is skipped when its secret is missing):
+#   AUR_SSH_PRIVATE_KEY  SSH key registered in the AUR account that owns "vpngo".
+#   PACKAGES_TOKEN       GitHub token with write access to <owner>/homebrew-vpngo
+#                        and <owner>/scoop-vpngo.
 on:
   push:
     tags: ['v*']
@@ -10,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  NFPM_VERSION: 2.48.0
+  VOPONO_VERSION: 1.0.2
 
 jobs:
   test:
@@ -26,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      stable: ${{ steps.version.outputs.stable }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -39,9 +50,25 @@ jobs:
           else
             version="0.0.0-dev.$GITHUB_RUN_NUMBER"
           fi
+          case "$version" in *-*) stable=false ;; *) stable=true ;; esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Build archives, installers and SHA256SUMS
-        run: python tools/build_release.py --version "${{ steps.version.outputs.version }}" --out dist
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+      - name: Install nfpm
+        run: |
+          base="https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION"
+          archive="nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          curl -fsSLO "$base/$archive" -fsSLO "$base/checksums.txt"
+          grep " $archive\$" checksums.txt | sha256sum -c
+          tar -xzf "$archive" nfpm && sudo mv nfpm /usr/local/bin/
+      - name: Build archives, packages, installers and SHA256SUMS
+        run: python tools/build_release.py --version "${{ steps.version.outputs.version }}" --linux-packages --out dist
+      - name: Add the Arch Linux PKGBUILD
+        if: steps.version.outputs.stable == 'true'
+        run: |
+          python tools/package_manifests.py --version "${{ steps.version.outputs.version }}" \
+            --sums dist/SHA256SUMS --repository "$GITHUB_REPOSITORY" --out pkg
+          cp pkg/PKGBUILD dist/PKGBUILD
+          (cd dist && sha256sum PKGBUILD >> SHA256SUMS)
       - name: Verify checksums
         working-directory: dist
         run: sha256sum -c SHA256SUMS
@@ -87,13 +114,17 @@ jobs:
           PATH="$HOME/stub:$PATH" sh dist/install-linux.sh
           PATH="$HOME/stub:$PATH" sh dist/install-linux.sh  # A second run must upgrade in place.
           test "$("$HOME/.local/bin/vpngo" version)" = "vpngo $VERSION"
+      - name: Install the .deb package
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSLO "https://github.com/jamesmcm/vopono/releases/download/$VOPONO_VERSION/vopono_${VOPONO_VERSION}_amd64.deb"
+          sudo apt-get install -yq "./vopono_${VOPONO_VERSION}_amd64.deb" ./dist/vpngo_*_all.deb
+          test "$(/usr/bin/vpngo version)" = "vpngo $VERSION"
       - name: Install on macOS
         if: runner.os == 'macOS'
         run: |
           sh dist/install-macos.sh
-          mkdir -p "$HOME/.local/share/vpngo/app/state" && echo kept > "$HOME/.local/share/vpngo/app/state/marker"
-          sh dist/install-macos.sh
-          test "$(cat "$HOME/.local/share/vpngo/app/state/marker")" = kept
+          sh dist/install-macos.sh  # A second run must upgrade in place.
           test "$("$HOME/.local/bin/vpngo" version)" = "vpngo $VERSION"
       - name: Install on Windows
         if: runner.os == 'Windows'
@@ -101,18 +132,57 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File dist\install-windows.ps1
           if ($LASTEXITCODE -ne 0) { throw 'First install failed.' }
-          $State = Join-Path $env:LOCALAPPDATA 'vpngo\app\state'
-          New-Item -ItemType Directory -Force $State | Out-Null
-          Set-Content (Join-Path $State 'marker') 'kept'
           powershell -NoProfile -ExecutionPolicy Bypass -File dist\install-windows.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Upgrade failed.' }
-          if ((Get-Content (Join-Path $State 'marker')) -ne 'kept') { throw 'Upgrade lost the state folder.' }
           $Output = & (Join-Path $HOME 'bin\vpngo.cmd') version
           if ($Output -ne "vpngo $env:VERSION") { throw "Unexpected version output: $Output" }
 
+  rpm:
+    needs: build
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Install the .rpm package
+        run: |
+          dnf install -y "https://github.com/jamesmcm/vopono/releases/download/$VOPONO_VERSION/vopono_${VOPONO_VERSION}_amd64_fedora.rpm" ./dist/vpngo-*.noarch.rpm
+          test "$(vpngo version)" = "vpngo $VERSION"
+
+  arch:
+    if: needs.build.outputs.stable == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Build and install the PKGBUILD
+        run: |
+          pacman -Syu --noconfirm --needed base-devel python
+          useradd -m builder
+          install -d -o builder /tmp/pkg
+          # makepkg uses the local archive instead of downloading it and still checks its sha256.
+          install -o builder dist/PKGBUILD "dist/vpngo-$VERSION-linux.tar.gz" /tmp/pkg/
+          su builder -c 'cd /tmp/pkg && makepkg --nodeps --noconfirm'
+          # vopono comes from the AUR, so skip dependency checks for this version test.
+          pacman -U --noconfirm -dd /tmp/pkg/vpngo-*.pkg.tar.zst
+          test "$(vpngo version)" = "vpngo $VERSION"
+
   publish:
-    if: github.ref_type == 'tag'
-    needs: [build, installers]
+    if: >-
+      !cancelled() && github.ref_type == 'tag' &&
+      needs.installers.result == 'success' && needs.rpm.result == 'success' &&
+      (needs.arch.result == 'success' || needs.arch.result == 'skipped')
+    needs: [build, installers, rpm, arch]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -128,8 +198,129 @@ jobs:
       - name: Publish the release
         run: |
           sed -e "s|@VERSION@|$VERSION|g" -e "s|@REPOSITORY@|$GITHUB_REPOSITORY|g" \
-            packaging/release-notes.md > notes.md
+            -e "s|@OWNER@|$GITHUB_REPOSITORY_OWNER|g" packaging/release-notes.md > notes.md
           prerelease=
           case "$VERSION" in *-*) prerelease=--prerelease ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "vpngo $VERSION" --notes-file notes.md --generate-notes --verify-tag $prerelease
+
+  aur:
+    if: needs.build.outputs.stable == 'true'
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - id: secret
+        name: Check the AUR key
+        env:
+          KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then echo "set=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::AUR_SSH_PRIVATE_KEY is not set; the AUR package was not updated."; fi
+      - if: steps.secret.outputs.set == 'true'
+        uses: actions/checkout@v7
+      - if: steps.secret.outputs.set == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - if: steps.secret.outputs.set == 'true'
+        run: python3 tools/package_manifests.py --version "$VERSION" --sums dist/SHA256SUMS --repository "$GITHUB_REPOSITORY" --out pkg
+      - if: steps.secret.outputs.set == 'true'
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: vpngo
+          pkgbuild: pkg/PKGBUILD
+          test: true
+          commit_username: ${{ github.repository_owner }}
+          commit_email: ${{ github.repository_owner_id }}+${{ github.repository_owner }}@users.noreply.github.com
+          commit_message: Update to ${{ needs.build.outputs.version }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+  homebrew:
+    if: needs.build.outputs.stable == 'true'
+    needs: [build, publish]
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      EMAIL: ${{ github.repository_owner_id }}+${{ github.repository_owner }}@users.noreply.github.com
+    steps:
+      - id: secret
+        name: Check the packages token
+        run: |
+          if [ -n "$TOKEN" ]; then echo "set=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::PACKAGES_TOKEN is not set; the Homebrew tap was not updated."; fi
+      - if: steps.secret.outputs.set == 'true'
+        uses: actions/checkout@v7
+      - if: steps.secret.outputs.set == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - if: steps.secret.outputs.set == 'true'
+        name: Update the tap
+        run: |
+          python3 tools/package_manifests.py --version "$VERSION" --sums dist/SHA256SUMS --repository "$GITHUB_REPOSITORY" --out pkg
+          git clone "https://x-access-token:$TOKEN@github.com/$OWNER/homebrew-vpngo.git" tap
+          mkdir -p tap/Formula && cp pkg/vpngo.rb tap/Formula/vpngo.rb
+          cd tap
+          git config user.name "$OWNER" && git config user.email "$EMAIL"
+          git add Formula/vpngo.rb
+          git diff --cached --quiet || git commit -m "vpngo $VERSION"
+          git push origin HEAD:main
+      - if: steps.secret.outputs.set == 'true'
+        name: Install from the tap
+        run: |
+          brew tap "$OWNER/vpngo"
+          brew install vpngo
+          brew test vpngo
+          test "$(vpngo version)" = "vpngo $VERSION"
+
+  scoop:
+    if: needs.build.outputs.stable == 'true'
+    needs: [build, publish]
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      EMAIL: ${{ github.repository_owner_id }}+${{ github.repository_owner }}@users.noreply.github.com
+    steps:
+      - id: secret
+        name: Check the packages token
+        shell: bash
+        run: |
+          if [ -n "$TOKEN" ]; then echo "set=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::PACKAGES_TOKEN is not set; the Scoop bucket was not updated."; fi
+      - if: steps.secret.outputs.set == 'true'
+        uses: actions/checkout@v7
+      - if: steps.secret.outputs.set == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - if: steps.secret.outputs.set == 'true'
+        name: Update the bucket
+        shell: bash
+        run: |
+          python tools/package_manifests.py --version "$VERSION" --sums dist/SHA256SUMS --repository "$GITHUB_REPOSITORY" --out pkg
+          git clone "https://x-access-token:$TOKEN@github.com/$OWNER/scoop-vpngo.git" bucket
+          mkdir -p bucket/bucket && cp pkg/vpngo.json bucket/bucket/vpngo.json
+          cd bucket
+          git config user.name "$OWNER" && git config user.email "$EMAIL"
+          git add bucket/vpngo.json
+          git diff --cached --quiet || git commit -m "vpngo $VERSION"
+          git push origin HEAD:main
+      - if: steps.secret.outputs.set == 'true'
+        name: Install from the bucket
+        shell: pwsh
+        run: |
+          Invoke-Expression "& {$(Invoke-RestMethod https://get.scoop.sh)} -RunAsAdmin"
+          $env:PATH = "$HOME\scoop\shims;$env:PATH"
+          scoop bucket add vpngo "https://github.com/$env:OWNER/scoop-vpngo"
+          scoop install vpngo/vpngo
+          $Output = vpngo version
+          if ($Output -ne "vpngo $env:VERSION") { throw "Unexpected version output: $Output" }

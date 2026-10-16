@@ -8,7 +8,7 @@ import urllib.error
 
 from apps import AppError, find, key
 from assignments import get as assignment_for
-from generate_mihomo import STATE, build_config, group_name, private_write, profile_proxy
+from generate_mihomo import STATE, build_config, controller, group_name, private_write, profile_proxy
 from profiles import parsed_profiles, profile_key, resolve
 
 
@@ -24,20 +24,17 @@ def save_managed(data):
 
 
 def render():
-    try:
-        controller = json.loads((STATE / "controller.json").read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise AppError("Run 'vpngo setup <wireguard.conf>' first.") from error
+    settings = controller()
     private_write(STATE / "config.yaml", build_config(
-        parsed_profiles(), controller["secret"], int(controller["port"]), load_managed()))
-    return controller
+        parsed_profiles(), settings["secret"], int(settings["port"]), load_managed()))
+    return settings
 
 
 def reload_runtime():
     data = load_managed()
-    controller = render()
+    settings = render()
     from control import request
-    port, secret = int(controller["port"]), controller["secret"]
+    port, secret = int(settings["port"]), settings["secret"]
     try:
         request(port, secret, "GET", "/version")
     except urllib.error.HTTPError:
@@ -62,8 +59,6 @@ def reload_runtime():
 def prepare(application, profile="default"):
     app = find(application)
     assignment = assignment_for(application)
-    if not (STATE / "controller.json").is_file():
-        raise AppError("Run 'vpngo setup <wireguard.conf>' first.")
     profile = profile_key(profile)
     resolve(profile)
     name = key(application)

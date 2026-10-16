@@ -15,11 +15,11 @@ import sys
 from pathlib import Path
 
 from i18n import tr
-from apps import AppError
+from apps import AppError, mihomo_dir
 
 
-PROJECT = Path(__file__).resolve().parent.parent
-STATE = PROJECT / "state"
+STATE = mihomo_dir()
+DEFAULT_PORT = 9097
 
 
 def scalar(value):
@@ -179,29 +179,36 @@ def private_write(path, content):
         raise
 
 
+def controller(port=None):
+    """Load the local controller settings, creating them with a new secret if missing."""
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name == "posix":
+        STATE.chmod(0o700)
+    path = STATE / "controller.json"
+    previous = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    current = {"port": port or int(previous.get("port", DEFAULT_PORT)),
+               "secret": previous.get("secret") or secrets.token_urlsafe(32)}
+    if current != previous:
+        private_write(path, json.dumps(current))
+    if not (STATE / "managed.json").exists():
+        private_write(STATE / "managed.json", "{}")
+    return current
+
+
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("wireguard", type=Path, help="standard WireGuard .conf file")
     cli.add_argument("profile", nargs="?", default="default", help="profile name (default: default)")
-    cli.add_argument("--port", type=int, default=9097, help="local Mihomo API port")
+    cli.add_argument("--port", type=int, default=DEFAULT_PORT, help="local Mihomo API port")
     args = cli.parse_args()
     if not 1024 <= args.port <= 65535:
         cli.error("--port must be between 1024 and 65535")
     from profiles import register, parsed_profiles
     register(args.wireguard, args.profile)
     profiles = parsed_profiles()
-    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name == "posix":
-        STATE.chmod(0o700)
-    controller_path = STATE / "controller.json"
-    previous_controller = json.loads(controller_path.read_text(encoding="utf-8")) if controller_path.exists() else {}
-    secret = previous_controller.get("secret") or secrets.token_urlsafe(32)
-    managed_path = STATE / "managed.json"
-    managed = json.loads(managed_path.read_text(encoding="utf-8")) if managed_path.exists() else {}
-    if not managed_path.exists():
-        private_write(managed_path, "{}")
-    private_write(STATE / "config.yaml", build_config(profiles, secret, args.port, managed))
-    private_write(controller_path, json.dumps({"port": args.port, "secret": secret}))
+    settings = controller(args.port)
+    managed = json.loads((STATE / "managed.json").read_text(encoding="utf-8"))
+    private_write(STATE / "config.yaml", build_config(profiles, settings["secret"], settings["port"], managed))
     print(tr("config_created", path=STATE / "config.yaml"))
     print(tr("config_private"))
 

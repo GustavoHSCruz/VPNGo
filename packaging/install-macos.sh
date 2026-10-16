@@ -43,10 +43,6 @@ tar -xzf "$work/$asset" -C "$work"
 mkdir -p "$prefix"
 rm -rf "$prefix/app.new" "$prefix/app.old"
 mv "$work/vpngo-$version-$system" "$prefix/app.new"
-# Keep Mihomo's generated configuration and secrets across upgrades.
-if [ -d "$prefix/app/state" ]; then
-    mv "$prefix/app/state" "$prefix/app.new/state"
-fi
 if [ -d "$prefix/app" ]; then
     mv "$prefix/app" "$prefix/app.old"
 fi

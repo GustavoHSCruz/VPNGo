@@ -60,6 +60,8 @@ OpenVPN, IKEv2 and VPN apps that cannot export a WireGuard file are not supporte
 
 **How it works on Linux:** vpngo uses [vopono](https://github.com/jamesmcm/vopono) to give each app its own isolated network with its own VPN tunnel. The kill switch is on by default: if the VPN drops, the app loses internet instead of falling back to your normal connection. vpngo asks for your password with `sudo` because creating that isolated network needs administrator rights.
 
+> **Prefer a system package?** After step 1, instead of step 2: on Arch Linux, CachyOS or Manjaro, run `mkdir -p ~/vpngo-pkg && cd ~/vpngo-pkg && curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/PKGBUILD && makepkg -si`. On Ubuntu, Debian or Fedora, install the `.deb` or `.rpm` from the [latest release](https://github.com/GustavoHSCruz/VPNGo/releases/latest) with `sudo apt install ./vpngo_*_all.deb` or `sudo dnf install ./vpngo-*.noarch.rpm`.
+
 ### Step 1: Install what vpngo needs
 
 Use the commands for your system.
@@ -152,6 +154,8 @@ Open [api.ipify.org](https://api.ipify.org) in Firefox and in another browser. T
 
 Two limits to know: there is no kill switch, so if Mihomo stops, the apps go back to your normal connection. And an app that starts separate helper programs may need [extra setup](#helper-programs-windows-and-macos).
 
+> **Already use [Scoop](https://scoop.sh)?** `scoop bucket add vpngo https://github.com/GustavoHSCruz/scoop-vpngo` and then `scoop install vpngo` install vpngo, Python and Mihomo; skip to [step 3](#step-3-register-your-vpn-file-1).
+
 ### Step 1: Install what vpngo needs
 
 Open **PowerShell**: press the Windows key, type `PowerShell` and press Enter. Run:
@@ -230,6 +234,8 @@ Open [api.ipify.org](https://api.ipify.org) in Firefox and in Edge. The two numb
 **How it works on macOS:** vpngo uses [Mihomo](https://github.com/MetaCubeX/mihomo), a free routing program. Mihomo creates one virtual network interface and sends only the programs you choose through the VPN. vpngo asks for your Mac password with `sudo` when it starts Mihomo, because creating that interface needs administrator rights.
 
 Two limits to know: there is no kill switch, so if Mihomo stops, the apps go back to your normal connection. And an app that starts separate helper programs may need [extra setup](#helper-programs-windows-and-macos).
+
+> **Already use [Homebrew](https://brew.sh)?** `brew install GustavoHSCruz/vpngo/vpngo` installs vpngo and Mihomo; skip to [step 3](#step-3-register-your-vpn-file-2).
 
 ### Step 1: Install what vpngo needs
 
@@ -403,12 +409,12 @@ After `switch`, the address in the log must change to the new exit's. The probe 
 ### Windows
 
 - Run vpngo from PowerShell or Command Prompt.
-- If Mihomo does not start, read the messages in its window and check `%LOCALAPPDATA%\vpngo\app\state\config.yaml`.
+- If Mihomo does not start, read the messages in its window and check `%LOCALAPPDATA%\vpngo\mihomo\config.yaml`.
 - If you closed the Mihomo window by accident, run `vpngo start <app>` again.
 
 ### macOS
 
-- Mihomo keeps running after the command ends. Its log is `~/.local/share/vpngo/app/state/mihomo.log`.
+- Mihomo keeps running after the command ends. Its log is `~/.local/state/vpngo/mihomo/mihomo.log`.
 - If vpngo says `mihomo executable not found`, repeat step 1 of the macOS section or set `VPNGO_MIHOMO` to the full path of the `mihomo` file.
 
 On every system, `vpngo status <app>` shows the current route. Checking the address from inside the app is the final proof; on Windows and macOS, a Mihomo rule alone does not guarantee that every connection of the app uses the VPN.
@@ -421,19 +427,19 @@ On every system, `vpngo status <app>` shows the current route. Checking the addr
 | The `vpngo` command | `~/.local/bin/vpngo` | `%USERPROFILE%\bin\vpngo.cmd` |
 | Profiles, app paths, choices and policies (`profiles.json`, `apps.json`, `assignments.json`) | `~/.config/vpngo/` | `%APPDATA%\vpngo\` |
 | Linux logs and session data | `~/.local/state/vpngo/` | — |
-| Mihomo configuration and log | `~/.local/share/vpngo/app/state/` | `%LOCALAPPDATA%\vpngo\app\state\` |
+| Mihomo configuration and log | `~/.local/state/vpngo/mihomo/` (macOS) | `%LOCALAPPDATA%\vpngo\mihomo\` |
 
-Your `.conf` files, `state/config.yaml` and `state/controller.json` contain private keys and passwords. Never share them or attach them to bug reports.
+Your `.conf` files and the Mihomo folder's `config.yaml` and `controller.json` contain private keys and passwords. Never share them or attach them to bug reports.
 
 Messages are in English by default. For Portuguese, set `VPNGO_LANG=pt-BR` (`$env:VPNGO_LANG = 'pt-BR'` in PowerShell).
 
 ### Update
 
-Download and run the installer for your system again, as in step 2. It replaces the program and keeps your profiles, choices and Mihomo configuration. On Windows, close the Mihomo window first. `vpngo version` shows the version you have; the [releases page](https://github.com/GustavoHSCruz/VPNGo/releases) lists what changed.
+If you installed with a package manager, use its upgrade command (`brew upgrade vpngo`, `scoop update vpngo`) or install the newer `.deb`, `.rpm` or `PKGBUILD` the same way. Otherwise download and run the installer for your system again, as in step 2. It replaces the program and keeps your profiles, choices and Mihomo configuration. `vpngo version` shows the version you have; the [releases page](https://github.com/GustavoHSCruz/VPNGo/releases) lists what changed.
 
 ### Uninstall
 
-Stop your apps with `vpngo stop <app>` first. Then:
+Stop your apps with `vpngo stop <app>` first. If you installed with a package manager, remove it with that manager (`sudo pacman -R vpngo`, `sudo apt remove vpngo`, `sudo dnf remove vpngo`, `brew uninstall vpngo`, `scoop uninstall vpngo`) and skip the first line below. Then:
 
 ```sh
 # Linux and macOS

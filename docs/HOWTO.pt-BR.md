@@ -60,6 +60,8 @@ OpenVPN, IKEv2 e aplicativos de VPN que não exportam arquivo WireGuard não sã
 
 **Como funciona no Linux:** o vpngo usa o [vopono](https://github.com/jamesmcm/vopono) para dar a cada aplicativo uma rede isolada, com seu próprio túnel de VPN. O kill switch vem ligado: se a VPN cair, o aplicativo fica sem internet em vez de voltar para a sua conexão normal. O vpngo pede sua senha com `sudo` porque criar essa rede isolada exige permissão de administrador.
 
+> **Prefere um pacote do sistema?** Depois do passo 1, no lugar do passo 2: no Arch Linux, CachyOS ou Manjaro, rode `mkdir -p ~/vpngo-pkg && cd ~/vpngo-pkg && curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/PKGBUILD && makepkg -si`. No Ubuntu, Debian ou Fedora, instale o `.deb` ou o `.rpm` da [versão mais recente](https://github.com/GustavoHSCruz/VPNGo/releases/latest) com `sudo apt install ./vpngo_*_all.deb` ou `sudo dnf install ./vpngo-*.noarch.rpm`.
+
 ### Passo 1: Instale o que o vpngo precisa
 
 Use os comandos do seu sistema.
@@ -152,6 +154,8 @@ Abra [api.ipify.org](https://api.ipify.org) no Firefox e em outro navegador. Os 
 
 Dois limites para saber: não existe kill switch, então se o Mihomo parar, os aplicativos voltam para a sua conexão normal. E um aplicativo que abre programas auxiliares separados pode precisar de [configuração extra](#programas-auxiliares-windows-e-macos).
 
+> **Já usa o [Scoop](https://scoop.sh)?** `scoop bucket add vpngo https://github.com/GustavoHSCruz/scoop-vpngo` e depois `scoop install vpngo` instalam o vpngo, o Python e o Mihomo; pule para o [passo 3](#passo-3-cadastre-seu-arquivo-de-vpn-1).
+
 ### Passo 1: Instale o que o vpngo precisa
 
 Abra o **PowerShell**: aperte a tecla Windows, digite `PowerShell` e aperte Enter. Rode:
@@ -230,6 +234,8 @@ Abra [api.ipify.org](https://api.ipify.org) no Firefox e no Edge. Os dois númer
 **Como funciona no macOS:** o vpngo usa o [Mihomo](https://github.com/MetaCubeX/mihomo), um programa gratuito de roteamento. O Mihomo cria uma interface de rede virtual e manda pela VPN só os programas que você escolher. O vpngo pede a senha do seu Mac com `sudo` quando inicia o Mihomo, porque criar essa interface exige permissão de administrador.
 
 Dois limites para saber: não existe kill switch, então se o Mihomo parar, os aplicativos voltam para a sua conexão normal. E um aplicativo que abre programas auxiliares separados pode precisar de [configuração extra](#programas-auxiliares-windows-e-macos).
+
+> **Já usa o [Homebrew](https://brew.sh)?** `brew install GustavoHSCruz/vpngo/vpngo` instala o vpngo e o Mihomo; pule para o [passo 3](#passo-3-cadastre-seu-arquivo-de-vpn-2).
 
 ### Passo 1: Instale o que o vpngo precisa
 
@@ -403,12 +409,12 @@ Depois do `switch`, o endereço no log precisa mudar para o da nova saída. O pr
 ### Windows
 
 - Rode o vpngo pelo PowerShell ou pelo Prompt de Comando.
-- Se o Mihomo não iniciar, leia as mensagens na janela dele e confira `%LOCALAPPDATA%\vpngo\app\state\config.yaml`.
+- Se o Mihomo não iniciar, leia as mensagens na janela dele e confira `%LOCALAPPDATA%\vpngo\mihomo\config.yaml`.
 - Se você fechou a janela do Mihomo sem querer, rode `vpngo start <app>` de novo.
 
 ### macOS
 
-- O Mihomo continua rodando depois que o comando termina. O log dele fica em `~/.local/share/vpngo/app/state/mihomo.log`.
+- O Mihomo continua rodando depois que o comando termina. O log dele fica em `~/.local/state/vpngo/mihomo/mihomo.log`.
 - Se o vpngo disser `mihomo executable not found`, repita o passo 1 da seção do macOS ou defina `VPNGO_MIHOMO` com o caminho completo do arquivo `mihomo`.
 
 Em todos os sistemas, `vpngo status <app>` mostra a rota atual. Conferir o endereço de dentro do aplicativo é a prova final; no Windows e no macOS, uma regra do Mihomo sozinha não garante que toda conexão do aplicativo use a VPN.
@@ -421,19 +427,19 @@ Em todos os sistemas, `vpngo status <app>` mostra a rota atual. Conferir o ender
 | O comando `vpngo` | `~/.local/bin/vpngo` | `%USERPROFILE%\bin\vpngo.cmd` |
 | Perfis, caminhos dos aplicativos, escolhas e políticas (`profiles.json`, `apps.json`, `assignments.json`) | `~/.config/vpngo/` | `%APPDATA%\vpngo\` |
 | Logs e dados de sessão do Linux | `~/.local/state/vpngo/` | — |
-| Configuração e log do Mihomo | `~/.local/share/vpngo/app/state/` | `%LOCALAPPDATA%\vpngo\app\state\` |
+| Configuração e log do Mihomo | `~/.local/state/vpngo/mihomo/` (macOS) | `%LOCALAPPDATA%\vpngo\mihomo\` |
 
-Seus arquivos `.conf`, `state/config.yaml` e `state/controller.json` contêm chaves privadas e senhas. Nunca compartilhe nem anexe esses arquivos em relatos de problema.
+Seus arquivos `.conf` e os arquivos `config.yaml` e `controller.json` da pasta do Mihomo contêm chaves privadas e senhas. Nunca compartilhe nem anexe esses arquivos em relatos de problema.
 
 As mensagens são em inglês por padrão. Para português, defina `VPNGO_LANG=pt-BR` (`$env:VPNGO_LANG = 'pt-BR'` no PowerShell).
 
 ### Atualizar
 
-Baixe e rode de novo o instalador do seu sistema, como no passo 2. Ele troca o programa e mantém seus perfis, suas escolhas e a configuração do Mihomo. No Windows, feche antes a janela do Mihomo. `vpngo version` mostra a versão que você tem; a [página de versões](https://github.com/GustavoHSCruz/VPNGo/releases) lista o que mudou.
+Se você instalou por um gerenciador de pacotes, use o comando de atualização dele (`brew upgrade vpngo`, `scoop update vpngo`) ou instale do mesmo jeito o `.deb`, o `.rpm` ou o `PKGBUILD` mais novo. Senão, baixe e rode de novo o instalador do seu sistema, como no passo 2. Ele troca o programa e mantém seus perfis, suas escolhas e a configuração do Mihomo. `vpngo version` mostra a versão que você tem; a [página de versões](https://github.com/GustavoHSCruz/VPNGo/releases) lista o que mudou.
 
 ### Desinstalar
 
-Primeiro pare seus aplicativos com `vpngo stop <app>`. Depois:
+Primeiro pare seus aplicativos com `vpngo stop <app>`. Se instalou por um gerenciador de pacotes, remova por ele (`sudo pacman -R vpngo`, `sudo apt remove vpngo`, `sudo dnf remove vpngo`, `brew uninstall vpngo`, `scoop uninstall vpngo`) e pule a primeira linha abaixo. Depois:
 
 ```sh
 # Linux e macOS

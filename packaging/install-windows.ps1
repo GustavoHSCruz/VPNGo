@@ -14,10 +14,6 @@ $Asset = "vpngo-$Version-windows.zip"
 $Base = if ($env:VPNGO_RELEASE_URL) { $env:VPNGO_RELEASE_URL.TrimEnd('/') } else { "https://github.com/$Repository/releases/download/v$Version" }
 $Prefix = if ($env:VPNGO_PREFIX) { $env:VPNGO_PREFIX } else { Join-Path $env:LOCALAPPDATA 'vpngo' }
 
-if (Get-Process -Name mihomo -ErrorAction SilentlyContinue) {
-    throw 'Close the Mihomo window before installing or upgrading vpngo.'
-}
-
 $Work = Join-Path ([IO.Path]::GetTempPath()) ('vpngo-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Work | Out-Null
 try {
@@ -46,9 +42,6 @@ try {
         if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
     }
     Move-Item -LiteralPath (Join-Path $Work "vpngo-$Version-windows") -Destination $New
-    # Keep Mihomo's generated configuration and secrets across upgrades.
-    $State = Join-Path $App 'state'
-    if (Test-Path -LiteralPath $State) { Move-Item -LiteralPath $State -Destination (Join-Path $New 'state') }
     if (Test-Path -LiteralPath $App) { Move-Item -LiteralPath $App -Destination $Old }
     Move-Item -LiteralPath $New -Destination $App
     if (Test-Path -LiteralPath $Old) { Remove-Item -LiteralPath $Old -Recurse -Force }

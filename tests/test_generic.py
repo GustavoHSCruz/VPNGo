@@ -28,6 +28,7 @@ os.environ.update(HOME=str(TEST_HOME), XDG_CONFIG_HOME=str(TEST_HOME / ".config"
 
 import apps
 import control
+import generate_mihomo
 import profiles
 from generate_mihomo import build_config, group_name, profile_proxy
 
@@ -51,6 +52,26 @@ class ApplicationDiscoveryTest(unittest.TestCase):
             with patch.object(apps, "REGISTRY", Path(temporary) / "apps.json"), patch.dict(os.environ, {"PATH": ""}):
                 with self.assertRaisesRegex(apps.AppError, r"vpngo config <path>"):
                     apps.find("missing-vpngo-app")
+
+
+class MihomoControllerTest(unittest.TestCase):
+    def test_controller_is_created_once_and_kept_private(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "mihomo"
+            with patch.object(generate_mihomo, "STATE", state):
+                first = generate_mihomo.controller()
+                self.assertEqual(generate_mihomo.controller(), first)
+                self.assertEqual(first["port"], generate_mihomo.DEFAULT_PORT)
+                self.assertGreaterEqual(len(first["secret"]), 32)
+                moved = generate_mihomo.controller(9100)
+            self.assertEqual(moved, {"port": 9100, "secret": first["secret"]})
+            self.assertEqual(json.loads((state / "managed.json").read_text()), {})
+            if os.name == "posix":
+                self.assertEqual(stat.S_IMODE(state.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE((state / "controller.json").stat().st_mode), 0o600)
+
+    def test_mihomo_folder_is_outside_the_program(self):
+        self.assertNotIn(str(Path(__file__).resolve().parents[1]), str(apps.mihomo_dir()))
 
 
 class MihomoRouteTest(unittest.TestCase):

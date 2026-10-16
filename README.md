@@ -92,6 +92,18 @@ Invoke-WebRequest https://github.com/GustavoHSCruz/VPNGo/releases/latest/downloa
 powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
+**Package managers.** Each stable release is also published to:
+
+| System | Command |
+| --- | --- |
+| Arch Linux, CachyOS, Manjaro | `curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/PKGBUILD` in an empty folder, then `makepkg -si`; install `vopono-bin` from the AUR first |
+| Ubuntu, Debian | `sudo apt install ./vpngo_<version>-1_all.deb`, downloaded from the release; install [vopono's `.deb`](https://github.com/jamesmcm/vopono/releases) first |
+| Fedora | `sudo dnf install ./vpngo-<version>-1.noarch.rpm`, downloaded from the release; install [vopono's `.rpm`](https://github.com/jamesmcm/vopono/releases) first |
+| macOS (Homebrew) | `brew install GustavoHSCruz/vpngo/vpngo` (also installs Mihomo) |
+| Windows (Scoop) | `scoop bucket add vpngo https://github.com/GustavoHSCruz/scoop-vpngo`, then `scoop install vpngo` (also installs Python and Mihomo) |
+
+Package managers install vpngo system-wide or in their own folders and update it with their usual upgrade command.
+
 Check the installation with `vpngo version`. Each release also has the archives for manual download in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`; extract one and run the installer inside it (`linux/install.sh`, `macos/install.sh` or `windows\install.ps1`).
 
 **From source.** Clone the repository and run the same inner installer from the checkout. `vpngo version` then reports `dev`.
@@ -293,9 +305,9 @@ The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app
 | Installed program (release installers) | `~/.local/share/vpngo/app/` | `%LOCALAPPDATA%\vpngo\app\` |
 | Profiles, app paths, assignments, policies | `~/.config/vpngo/` | `%APPDATA%\vpngo\` |
 | Linux session logs and metadata | `~/.local/state/vpngo/` | — |
-| Generated Mihomo config and controller secret | `state/` in the installed program or checkout | `state\` in the installed program or checkout |
+| Generated Mihomo config, log and controller secret (macOS/Windows) | `~/.local/state/vpngo/mihomo/` | `%LOCALAPPDATA%\vpngo\mihomo\` |
 
-`.conf` files, `state/config.yaml` and `state/controller.json` contain private keys or secrets. The repository's `.gitignore` excludes `*.conf`, `*.key`, `*.wg`, logs and `state/`; still, never commit, paste or attach them. vpngo writes its registry files with owner-only permissions.
+`.conf` files and the Mihomo folder's `config.yaml` and `controller.json` contain private keys or secrets. The repository's `.gitignore` excludes `*.conf`, `*.key`, `*.wg` and logs; still, never commit, paste or attach them. vpngo writes its registry files with owner-only permissions.
 
 Messages default to English (en-US). Set `VPNGO_LANG=pt-BR` for Portuguese messages (`$env:VPNGO_LANG = 'pt-BR'` in PowerShell). `VPNGO_MIHOMO` and `VPNGO_PYTHON` select custom Mihomo and Python binaries.
 
@@ -308,8 +320,8 @@ windows/    PowerShell launcher, cmd shim and installer
 shared/     Profiles, assignments, app discovery, Mihomo config generation, i18n
 tests/      Automated tests and a manual probe app for live route checks
 docs/       Setup guides in English and Portuguese
-packaging/  Download-and-install scripts and release notes template
-tools/      Release build and tagging scripts
+packaging/  Download-and-install scripts, .deb/.rpm, AUR, Homebrew and Scoop templates, release notes
+tools/      Release build, package manifest and tagging scripts
 .github/    Release workflow
 ```
 
@@ -345,11 +357,15 @@ tools/tag-release.sh 1.2.3
 The script checks that `main` is clean and matches `origin/main`, runs the tests and a local build, then creates and pushes the annotated tag `v1.2.3`. The tag starts the [Release workflow](.github/workflows/release.yml), which:
 
 1. runs the tests;
-2. builds the Linux, macOS and Windows archives in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`, the three download-and-install scripts and `SHA256SUMS`;
+2. builds the Linux, macOS and Windows archives in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`, the `.deb` and `.rpm` packages, the three download-and-install scripts and `SHA256SUMS`;
 3. installs and upgrades vpngo with each installer on Linux, macOS and Windows runners;
-4. publishes the GitHub release with install instructions and generated notes. Versions with a suffix such as `-rc.1` are marked as pre-releases.
+4. installs the `.deb` on Ubuntu, the `.rpm` on Fedora and, for stable versions, builds and installs the `PKGBUILD` on Arch Linux;
+5. publishes the GitHub release with install instructions and generated notes. Versions with a suffix such as `-rc.1` are marked as pre-releases;
+6. for stable versions, adds a tested Arch Linux `PKGBUILD` to the release, and updates the AUR package `vpngo`, the [Homebrew tap](https://github.com/GustavoHSCruz/homebrew-vpngo) and the [Scoop bucket](https://github.com/GustavoHSCruz/scoop-vpngo), then installs vpngo from each one to check it.
 
-Running the workflow by hand from the Actions tab does steps 1–3 without publishing. To build locally (Python 3.14 or newer, for `.tar.zst`):
+The package updates need two repository secrets: `AUR_SSH_PRIVATE_KEY` (an SSH key registered in the AUR account that owns `vpngo`) and `PACKAGES_TOKEN` (a GitHub token that can push to `homebrew-vpngo` and `scoop-vpngo`). Without them the release still publishes and the workflow notes which updates it skipped. The AUR package is not published yet, because AUR registration is temporarily closed; until then, Arch users install from the release's `PKGBUILD`.
+
+Running the workflow by hand from the Actions tab does steps 1–4 without publishing. To build locally (Python 3.14 or newer, for `.tar.zst`; add `--linux-packages` with [nfpm](https://nfpm.goreleaser.com) installed to include the `.deb` and `.rpm`):
 
 ```sh
 python3 tools/build_release.py --version 1.2.3 --out dist
