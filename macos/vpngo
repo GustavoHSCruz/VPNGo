@@ -2,7 +2,16 @@
 # vpngo for macOS. VPNGO_MIHOMO can point to a custom binary.
 set -eu
 
-project=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# Follow the ~/.local/bin/vpngo link back to the installed launcher.
+source=$0
+while [ -L "$source" ]; do
+    link=$(readlink "$source")
+    case "$link" in
+        /*) source=$link ;;
+        *) source=$(dirname -- "$source")/$link ;;
+    esac
+done
+project=$(CDPATH= cd -- "$(dirname -- "$source")/.." && pwd)
 state="$project/state"
 python=${VPNGO_PYTHON:-python3}
 
