@@ -5,3 +5,4 @@ __pycache__/
 *.wg
 *.key
 *.log
+dist/

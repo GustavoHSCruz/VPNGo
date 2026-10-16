@@ -1,0 +1,135 @@
+name: Release
+
+# Pushing a tag such as v1.2.3 tests, builds, checks the installers on Linux,
+# macOS and Windows, then publishes the GitHub release. Running the workflow by
+# hand does everything except publishing.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m unittest discover -s tests
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - id: version
+        name: Read the version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            version="0.0.0-dev.$GITHUB_RUN_NUMBER"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build archives, installers and SHA256SUMS
+        run: python tools/build_release.py --version "${{ steps.version.outputs.version }}" --out dist
+      - name: Verify checksums
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  installers:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      VPNGO_RELEASE_URL: http://127.0.0.1:8765
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Serve the release files locally
+        shell: bash
+        run: |
+          python -m http.server 8765 --bind 127.0.0.1 --directory dist > /dev/null 2>&1 &
+          for attempt in $(seq 30); do
+            curl -fsS -o /dev/null "$VPNGO_RELEASE_URL/SHA256SUMS" && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Install on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq wireguard-tools
+          # vopono is only checked for presence here; the routing itself is not exercised.
+          mkdir -p "$HOME/stub" && printf '#!/bin/sh\nexit 0\n' > "$HOME/stub/vopono" && chmod +x "$HOME/stub/vopono"
+          PATH="$HOME/stub:$PATH" sh dist/install-linux.sh
+          PATH="$HOME/stub:$PATH" sh dist/install-linux.sh  # A second run must upgrade in place.
+          test "$("$HOME/.local/bin/vpngo" version)" = "vpngo $VERSION"
+      - name: Install on macOS
+        if: runner.os == 'macOS'
+        run: |
+          sh dist/install-macos.sh
+          mkdir -p "$HOME/.local/share/vpngo/app/state" && echo kept > "$HOME/.local/share/vpngo/app/state/marker"
+          sh dist/install-macos.sh
+          test "$(cat "$HOME/.local/share/vpngo/app/state/marker")" = kept
+          test "$("$HOME/.local/bin/vpngo" version)" = "vpngo $VERSION"
+      - name: Install on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\install-windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'First install failed.' }
+          $State = Join-Path $env:LOCALAPPDATA 'vpngo\app\state'
+          New-Item -ItemType Directory -Force $State | Out-Null
+          Set-Content (Join-Path $State 'marker') 'kept'
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\install-windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Upgrade failed.' }
+          if ((Get-Content (Join-Path $State 'marker')) -ne 'kept') { throw 'Upgrade lost the state folder.' }
+          $Output = & (Join-Path $HOME 'bin\vpngo.cmd') version
+          if ($Output -ne "vpngo $env:VERSION") { throw "Unexpected version output: $Output" }
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [build, installers]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Publish the release
+        run: |
+          sed -e "s|@VERSION@|$VERSION|g" -e "s|@REPOSITORY@|$GITHUB_REPOSITORY|g" \
+            packaging/release-notes.md > notes.md
+          prerelease=
+          case "$VERSION" in *-*) prerelease=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "vpngo $VERSION" --notes-file notes.md --generate-notes --verify-tag $prerelease

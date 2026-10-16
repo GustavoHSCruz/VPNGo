@@ -24,7 +24,7 @@ try {
     if (-not $Application) {
         throw 'Usage: vpngo config <path> | setup <wireguard.conf> [profile] | profiles | <application> [start [profile]|stop|on|off|status]'
     }
-    if ($Application -in @('profile','assign','start','stop','switch','status','on','off','policy','helper')) {
+    if ($Application -in @('profile','assign','start','stop','switch','status','on','off','policy','helper','version')) {
         $CliArgs = @($Application)
         if ($Action) { $CliArgs += $Action }
         if ($Profile) { $CliArgs += $Profile }

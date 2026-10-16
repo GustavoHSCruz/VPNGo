@@ -75,6 +75,17 @@ class UnifiedCommandTest(unittest.TestCase):
             self.assertEqual(commands.main(["stop", "example-app"]), 0)
         backend.assert_called_once_with("example-app", "stop")
 
+    def test_version_reads_release_file_or_reports_dev(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            with patch.object(commands, "PROJECT", project):
+                self.assertEqual(commands.version(), "dev")
+                (project / "VERSION").write_text("1.2.3\n")
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(commands.main(["version"]), 0)
+            self.assertEqual(output.getvalue(), "vpngo 1.2.3\n")
+
 
 if __name__ == "__main__":
     unittest.main()

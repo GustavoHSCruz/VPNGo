@@ -1,0 +1,40 @@
+## Install
+
+New to vpngo? Follow the [step-by-step guide](https://github.com/@REPOSITORY@/blob/v@VERSION@/docs/HOWTO.md) ([Português](https://github.com/@REPOSITORY@/blob/v@VERSION@/docs/HOWTO.pt-BR.md)) first; it lists what each system needs before installing.
+
+**Linux**
+
+```sh
+curl -fLO https://github.com/@REPOSITORY@/releases/download/v@VERSION@/install-linux.sh
+sh install-linux.sh
+```
+
+**macOS**
+
+```sh
+curl -fLO https://github.com/@REPOSITORY@/releases/download/v@VERSION@/install-macos.sh
+sh install-macos.sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+Invoke-WebRequest https://github.com/@REPOSITORY@/releases/download/v@VERSION@/install-windows.ps1 -OutFile install-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+The installers download the archive for your system, check it against `SHA256SUMS`, install it in `~/.local/share/vpngo` (`%LOCALAPPDATA%\vpngo` on Windows) and create the `vpngo` command. Running a newer installer upgrades in place and keeps your profiles and settings.
+
+## Files
+
+| File | Contents |
+| --- | --- |
+| `vpngo-@VERSION@-linux.*` | Linux launcher, installer and test probe |
+| `vpngo-@VERSION@-macos.*` | macOS launcher and installer |
+| `vpngo-@VERSION@-windows.*` | Windows launcher and installer |
+| `install-*.sh`, `install-windows.ps1` | Download-and-install scripts |
+| `SHA256SUMS` | SHA-256 checksum of every file above |
+
+Each archive comes in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`; the contents are identical. To check a manual download, run `sha256sum -c SHA256SUMS --ignore-missing` (Linux), `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS) or compare `Get-FileHash <file>` with its line in `SHA256SUMS` (Windows).
+
+vpngo is licensed under the Apache License 2.0. Redistributions must keep the `LICENSE` and `NOTICE` files.

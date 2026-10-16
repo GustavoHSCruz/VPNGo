@@ -67,7 +67,7 @@ Use os comandos do seu sistema.
 **Arch Linux, CachyOS, Manjaro:**
 
 ```sh
-sudo pacman -S --needed git python wireguard-tools iproute2 procps-ng iputils nftables
+sudo pacman -S --needed python wireguard-tools iproute2 procps-ng iputils nftables
 yay -S vopono-bin
 ```
 
@@ -77,7 +77,7 @@ Se você usa `paru` em vez de `yay`, rode `paru -S vopono-bin`.
 
 ```sh
 sudo apt update
-sudo apt install git python3 wireguard-tools iproute2 procps iputils-ping nftables curl
+sudo apt install python3 wireguard-tools iproute2 procps iputils-ping nftables curl
 curl -fLO https://github.com/jamesmcm/vopono/releases/download/1.0.2/vopono_1.0.2_amd64.deb
 sudo apt install ./vopono_1.0.2_amd64.deb
 ```
@@ -85,7 +85,7 @@ sudo apt install ./vopono_1.0.2_amd64.deb
 **Fedora:**
 
 ```sh
-sudo dnf install git python3 wireguard-tools iproute procps-ng iputils nftables
+sudo dnf install python3 wireguard-tools iproute procps-ng iputils nftables
 sudo dnf install https://github.com/jamesmcm/vopono/releases/download/1.0.2/vopono_1.0.2_amd64_fedora.rpm
 ```
 
@@ -96,13 +96,19 @@ Opcional: para usar o [isolamento de DNS](#kill-switch-e-isolamento-de-dns-no-li
 ### Passo 2: Baixe e instale o vpngo
 
 ```sh
-git clone https://github.com/GustavoHSCruz/VPNGo.git ~/VPNGo
-~/VPNGo/linux/install.sh
+curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/install-linux.sh
+sh install-linux.sh
 ```
 
-O primeiro comando baixa o vpngo para a pasta `VPNGo` na sua pasta pessoal. O segundo é o **instalador do Linux**, `linux/install.sh`. Ele confere se o passo 1 deu certo e cria o comando `vpngo` em `~/.local/bin`. Não muda mais nada no sistema. Mantenha a pasta `~/VPNGo`: o comando roda a partir dela.
+O primeiro comando baixa o **instalador do Linux**, `install-linux.sh`, da [versão mais recente](https://github.com/GustavoHSCruz/VPNGo/releases/latest). O segundo roda o instalador. Ele:
 
-Feche o terminal, abra outro e rode `vpngo profile list`. Se a resposta for `No VPN profiles configured.`, a instalação deu certo. Se aparecer `command not found`, o `~/.local/bin` ainda não está no PATH. Saia da sessão e entre de novo, ou adicione com:
+- baixa o pacote do Linux e confere com o arquivo `SHA256SUMS` da versão, recusando um download corrompido ou alterado;
+- instala o vpngo em `~/.local/share/vpngo/app`;
+- confere se o passo 1 deu certo e cria o comando `vpngo` em `~/.local/bin`.
+
+Ele não muda mais nada no sistema e não precisa de permissão de administrador.
+
+Feche o terminal, abra outro e rode `vpngo version`. Se a resposta for `vpngo` e um número de versão, a instalação deu certo. Se aparecer `command not found`, o `~/.local/bin` ainda não está no PATH. Saia da sessão e entre de novo, ou adicione com:
 
 ```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # use ~/.zshrc se o seu terminal usa zsh
@@ -148,14 +154,13 @@ Dois limites para saber: não existe kill switch, então se o Mihomo parar, os a
 
 ### Passo 1: Instale o que o vpngo precisa
 
-Abra o **PowerShell**: aperte a tecla Windows, digite `PowerShell` e aperte Enter. Rode estes comandos um de cada vez:
+Abra o **PowerShell**: aperte a tecla Windows, digite `PowerShell` e aperte Enter. Rode:
 
 ```powershell
-winget install -e --id Git.Git
 winget install 9NQ7512CXL7T
 ```
 
-O primeiro comando instala o Git, que baixa o vpngo. O segundo instala o [Python install manager](https://www.python.org/downloads/latest/pymanager/) pela Microsoft Store; o vpngo é escrito em Python. Aceite os termos se o winget perguntar.
+Isso instala o [Python install manager](https://www.python.org/downloads/latest/pymanager/) pela Microsoft Store; o vpngo é escrito em Python. Aceite os termos se o winget perguntar.
 
 Feche o PowerShell, abra de novo e rode `python --version`. Se ele oferecer instalar uma versão do Python, aceite. No fim precisa aparecer `Python 3.` seguido de um número. Se abrir a Microsoft Store em vez disso, instale o **Python install manager** pela Store e tente de novo.
 
@@ -174,18 +179,19 @@ O Mihomo já traz o driver do adaptador virtual do Windows (Wintun); não precis
 ### Passo 2: Baixe e instale o vpngo
 
 ```powershell
-git clone https://github.com/GustavoHSCruz/VPNGo.git "$HOME\VPNGo"
-powershell -ExecutionPolicy Bypass -File "$HOME\VPNGo\windows\install.ps1"
+Invoke-WebRequest https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/install-windows.ps1 -OutFile install-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
-O primeiro comando baixa o vpngo para a pasta `VPNGo` da sua pasta de usuário (por exemplo `C:\Users\voce\VPNGo`). O segundo roda o **instalador do Windows**, `windows\install.ps1`. O Windows bloqueia scripts por padrão; `-ExecutionPolicy Bypass` libera só esta execução e não muda a configuração para outros scripts. O instalador:
+O primeiro comando baixa o **instalador do Windows**, `install-windows.ps1`, da [versão mais recente](https://github.com/GustavoHSCruz/VPNGo/releases/latest). O segundo roda o instalador. O Windows bloqueia scripts por padrão; `-ExecutionPolicy Bypass` libera só esta execução e não muda a configuração para outros scripts. O instalador:
 
-- cria o comando `vpngo` como `vpngo.cmd` em `C:\Users\voce\bin`;
-- adiciona essa pasta ao PATH do seu usuário, para o PowerShell e o Prompt de Comando encontrarem o `vpngo` e o `mihomo.exe`.
+- baixa o pacote do Windows e confere com o arquivo `SHA256SUMS` da versão, recusando um download corrompido ou alterado;
+- instala o vpngo em `%LOCALAPPDATA%\vpngo\app` (por exemplo `C:\Users\voce\AppData\Local\vpngo\app`);
+- cria o comando `vpngo` como `vpngo.cmd` em `C:\Users\voce\bin` e adiciona essa pasta ao PATH do seu usuário, para o PowerShell e o Prompt de Comando encontrarem o `vpngo` e o `mihomo.exe`.
 
-Ele não precisa de permissão de administrador e não muda mais nada. Mantenha a pasta `VPNGo`: o comando roda a partir dela.
+Ele não precisa de permissão de administrador e não muda mais nada.
 
-Feche o PowerShell, abra de novo e rode `vpngo profile list`. Se a resposta for `No VPN profiles configured.`, a instalação deu certo.
+Feche o PowerShell, abra de novo e rode `vpngo version`. Se a resposta for `vpngo` e um número de versão, a instalação deu certo.
 
 ### Passo 3: Cadastre seu arquivo de VPN
 
@@ -233,7 +239,7 @@ Abra o **Terminal** (Aplicativos → Utilitários → Terminal) e rode:
 xcode-select --install
 ```
 
-Uma janela oferece instalar as ferramentas de linha de comando da Apple, que trazem o Git e o Python 3. Clique em **Instalar** e espere terminar. Se o terminal disser que já estão instaladas, siga em frente.
+Uma janela oferece instalar as ferramentas de linha de comando da Apple, que trazem o Python 3. Clique em **Instalar** e espere terminar. Se o terminal disser que já estão instaladas, siga em frente.
 
 Agora instale o Mihomo. Estes comandos baixam a versão oficial para o seu Mac (Apple Silicon ou Intel) da [página de versões do Mihomo](https://github.com/MetaCubeX/mihomo/releases) e salvam como `mihomo` em `~/.local/bin`:
 
@@ -255,13 +261,19 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
 ### Passo 2: Baixe e instale o vpngo
 
 ```sh
-git clone https://github.com/GustavoHSCruz/VPNGo.git ~/VPNGo
-~/VPNGo/macos/install.sh
+curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/install-macos.sh
+sh install-macos.sh
 ```
 
-O primeiro comando baixa o vpngo para a pasta `VPNGo` na sua pasta pessoal. O segundo é o **instalador do macOS**, `macos/install.sh`. Ele cria o comando `vpngo` em `~/.local/bin` e não muda mais nada. Mantenha a pasta `~/VPNGo`: o comando roda a partir dela.
+O primeiro comando baixa o **instalador do macOS**, `install-macos.sh`, da [versão mais recente](https://github.com/GustavoHSCruz/VPNGo/releases/latest). O segundo roda o instalador. Ele:
 
-Feche o Terminal, abra de novo e rode `vpngo profile list`. Se a resposta for `No VPN profiles configured.`, a instalação deu certo.
+- baixa o pacote do macOS e confere com o arquivo `SHA256SUMS` da versão, recusando um download corrompido ou alterado;
+- instala o vpngo em `~/.local/share/vpngo/app`;
+- cria o comando `vpngo` em `~/.local/bin`.
+
+Ele não muda mais nada no seu Mac e não precisa de permissão de administrador.
+
+Feche o Terminal, abra de novo e rode `vpngo version`. Se a resposta for `vpngo` e um número de versão, a instalação deu certo.
 
 ### Passo 3: Cadastre seu arquivo de VPN
 
@@ -379,24 +391,24 @@ Feche o terminal e abra outro. No Linux e no macOS, repita o passo do PATH da in
 **Teste sem fechar seus aplicativos.** O vpngo traz um programa de teste, o probe, que escreve o endereço público dele no log mais ou menos a cada dez segundos. Troque `minhavpn` e `outra` por dois perfis que você cadastrou:
 
 ```sh
-vpngo config ~/VPNGo/tests/manual/vpngo-probe
+vpngo config ~/.local/share/vpngo/app/tests/manual/vpngo-probe
 vpngo start vpngo-probe minhavpn
 vpngo switch vpngo-probe outra
 tail -n 12 ~/.local/state/vpngo/start.log
 vpngo stop vpngo-probe
 ```
 
-Depois do `switch`, o endereço no log precisa mudar para o da nova saída. O probe faz conexões novas a cada vez, então não prova que todo aplicativo reconecta do mesmo jeito. Para testar dois aplicativos ao mesmo tempo, copie o probe com outro nome, por exemplo `cp ~/VPNGo/tests/manual/vpngo-probe ~/.local/state/vpngo/vpngo-probe-b`, cadastre a cópia com `vpngo config` e inicie com outro perfil. Cada cópia escreve o próprio nome antes do endereço.
+Depois do `switch`, o endereço no log precisa mudar para o da nova saída. O probe faz conexões novas a cada vez, então não prova que todo aplicativo reconecta do mesmo jeito. Para testar dois aplicativos ao mesmo tempo, copie o probe com outro nome, por exemplo `cp ~/.local/share/vpngo/app/tests/manual/vpngo-probe ~/.local/state/vpngo/vpngo-probe-b`, cadastre a cópia com `vpngo config` e inicie com outro perfil. Cada cópia escreve o próprio nome antes do endereço.
 
 ### Windows
 
 - Rode o vpngo pelo PowerShell ou pelo Prompt de Comando.
-- Se o Mihomo não iniciar, leia as mensagens na janela dele e confira `state\config.yaml` na pasta `VPNGo`.
+- Se o Mihomo não iniciar, leia as mensagens na janela dele e confira `%LOCALAPPDATA%\vpngo\app\state\config.yaml`.
 - Se você fechou a janela do Mihomo sem querer, rode `vpngo start <app>` de novo.
 
 ### macOS
 
-- O Mihomo continua rodando depois que o comando termina. O log dele fica em `~/VPNGo/state/mihomo.log`.
+- O Mihomo continua rodando depois que o comando termina. O log dele fica em `~/.local/share/vpngo/app/state/mihomo.log`.
 - Se o vpngo disser `mihomo executable not found`, repita o passo 1 da seção do macOS ou defina `VPNGO_MIHOMO` com o caminho completo do arquivo `mihomo`.
 
 Em todos os sistemas, `vpngo status <app>` mostra a rota atual. Conferir o endereço de dentro do aplicativo é a prova final; no Windows e no macOS, uma regra do Mihomo sozinha não garante que toda conexão do aplicativo use a VPN.
@@ -405,10 +417,34 @@ Em todos os sistemas, `vpngo status <app>` mostra a rota atual. Conferir o ender
 
 | O quê | Linux e macOS | Windows |
 | --- | --- | --- |
+| O programa | `~/.local/share/vpngo/app/` | `%LOCALAPPDATA%\vpngo\app\` |
+| O comando `vpngo` | `~/.local/bin/vpngo` | `%USERPROFILE%\bin\vpngo.cmd` |
 | Perfis, caminhos dos aplicativos, escolhas e políticas (`profiles.json`, `apps.json`, `assignments.json`) | `~/.config/vpngo/` | `%APPDATA%\vpngo\` |
 | Logs e dados de sessão do Linux | `~/.local/state/vpngo/` | — |
-| Configuração e log do Mihomo | `state/` na pasta `VPNGo` | `state\` na pasta `VPNGo` |
+| Configuração e log do Mihomo | `~/.local/share/vpngo/app/state/` | `%LOCALAPPDATA%\vpngo\app\state\` |
 
 Seus arquivos `.conf`, `state/config.yaml` e `state/controller.json` contêm chaves privadas e senhas. Nunca compartilhe nem anexe esses arquivos em relatos de problema.
 
 As mensagens são em inglês por padrão. Para português, defina `VPNGO_LANG=pt-BR` (`$env:VPNGO_LANG = 'pt-BR'` no PowerShell).
+
+### Atualizar
+
+Baixe e rode de novo o instalador do seu sistema, como no passo 2. Ele troca o programa e mantém seus perfis, suas escolhas e a configuração do Mihomo. No Windows, feche antes a janela do Mihomo. `vpngo version` mostra a versão que você tem; a [página de versões](https://github.com/GustavoHSCruz/VPNGo/releases) lista o que mudou.
+
+### Desinstalar
+
+Primeiro pare seus aplicativos com `vpngo stop <app>`. Depois:
+
+```sh
+# Linux e macOS
+rm -rf ~/.local/share/vpngo ~/.local/bin/vpngo
+rm -rf ~/.config/vpngo ~/.local/state/vpngo   # também apaga seus perfis e configurações
+```
+
+```powershell
+# Windows: feche antes a janela do Mihomo
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\vpngo", "$HOME\bin\vpngo.cmd"
+Remove-Item -Recurse -Force "$env:APPDATA\vpngo"   # também apaga seus perfis e configurações
+```
+
+Seus arquivos `.conf` continuam onde você colocou. Apague também se não precisar mais deles.

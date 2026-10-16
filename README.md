@@ -41,6 +41,7 @@ Every system starts with the same first step: [get your VPN file](docs/HOWTO.md#
 - [Files, secrets and language](#files-secrets-and-language)
 - [Development](#development)
 - [Contributing](#contributing)
+- [License](#license)
 
 ## How it works
 
@@ -60,18 +61,45 @@ The launchers for each system (`linux/vpngo`, `macos/vpngo`, `windows/vpngo.ps1`
 
 ## Install
 
-Clone the repository and run the installer for your system from the checkout:
+First install what your system needs:
 
-| System | Requirements | Installer |
-| --- | --- | --- |
-| Linux | Python 3, vopono, `wg`, `ip`, `ss`, `pgrep`, `ping`, `nft` or `iptables`; `bwrap` for optional DNS isolation | `./linux/install.sh` |
-| macOS | Python 3, Mihomo on `PATH` or `VPNGO_MIHOMO=/absolute/path/mihomo` | `./macos/install.sh` |
-| Windows | Python 3, `mihomo.exe` on `PATH` or `VPNGO_MIHOMO` | `powershell -ExecutionPolicy Bypass -File .\windows\install.ps1` |
+| System | Requirements |
+| --- | --- |
+| Linux | Python 3, vopono, `wg`, `ip`, `ss`, `pgrep`, `ping`, `nft` or `iptables`; `bwrap` for optional DNS isolation |
+| macOS | Python 3, Mihomo on `PATH` or `VPNGO_MIHOMO=/absolute/path/mihomo` |
+| Windows | Python 3, `mihomo.exe` on `PATH` or `VPNGO_MIHOMO` |
+
+Then install vpngo from the [latest release](https://github.com/GustavoHSCruz/VPNGo/releases/latest). Each installer downloads the archive for your system, checks it against `SHA256SUMS`, installs it in `~/.local/share/vpngo` (`%LOCALAPPDATA%\vpngo` on Windows) and creates the `vpngo` command. Running it again later upgrades in place and keeps your settings.
+
+**Linux**
+
+```sh
+curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/install-linux.sh
+sh install-linux.sh
+```
+
+**macOS**
+
+```sh
+curl -fLO https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/install-macos.sh
+sh install-macos.sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+Invoke-WebRequest https://github.com/GustavoHSCruz/VPNGo/releases/latest/download/install-windows.ps1 -OutFile install-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+Check the installation with `vpngo version`. Each release also has the archives for manual download in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`; extract one and run the installer inside it (`linux/install.sh`, `macos/install.sh` or `windows\install.ps1`).
+
+**From source.** Clone the repository and run the same inner installer from the checkout. `vpngo version` then reports `dev`.
 
 ```sh
 git clone https://github.com/GustavoHSCruz/VPNGo.git
 cd VPNGo
-./linux/install.sh      # or ./macos/install.sh
+./linux/install.sh      # or ./macos/install.sh; on Windows: powershell -ExecutionPolicy Bypass -File .\windows\install.ps1
 ```
 
 What each installer does, and which permission vpngo asks for later:
@@ -80,7 +108,7 @@ What each installer does, and which permission vpngo asks for later:
 - **macOS** (`macos/install.sh`): links `vpngo` into `~/.local/bin`. `vpngo start` asks for your password with `sudo` to start Mihomo.
 - **Windows** (`windows/install.ps1`): creates `vpngo.cmd` in `%USERPROFILE%\bin` and adds that folder to your user `PATH`. `vpngo start` opens the Windows permission prompt to run Mihomo as administrator.
 
-None of the installers needs administrator rights. The command runs from the checkout, so keep the checkout where it is. Open a new terminal if `vpngo` is not found.
+None of the installers needs administrator rights. The command runs from the installed folder (or your checkout), so don't move it. Open a new terminal if `vpngo` is not found.
 
 The [step-by-step guide](docs/HOWTO.md) ([Português](docs/HOWTO.pt-BR.md)) has complete instructions for each system: dependencies with copy-and-paste commands, what each installer does, the permissions it asks for, and troubleshooting.
 
@@ -231,6 +259,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo policy <app> killswitch on\|off` | Set the Linux per-app fail-closed policy for the next start. Default: on. |
 | `vpngo policy <app> dns on\|off` | Set Linux resolver isolation for the next start. Default: off; needs the kill switch and a DNS IP in the profile. |
 | `vpngo helper add <app> <executable>` | Register a known helper executable for Mihomo process matching. |
+| `vpngo version` | Show the installed version (`dev` in a source checkout). |
 | `vpngo config <path>` | Register an executable, executable folder, or macOS `.app` bundle. |
 
 The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app-first form still work. On Windows, run the commands in PowerShell.
@@ -261,9 +290,10 @@ The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app
 
 | What | Linux / macOS | Windows |
 | --- | --- | --- |
+| Installed program (release installers) | `~/.local/share/vpngo/app/` | `%LOCALAPPDATA%\vpngo\app\` |
 | Profiles, app paths, assignments, policies | `~/.config/vpngo/` | `%APPDATA%\vpngo\` |
 | Linux session logs and metadata | `~/.local/state/vpngo/` | — |
-| Generated Mihomo config and controller secret | `state/` in the checkout | `state\` in the checkout |
+| Generated Mihomo config and controller secret | `state/` in the installed program or checkout | `state\` in the installed program or checkout |
 
 `.conf` files, `state/config.yaml` and `state/controller.json` contain private keys or secrets. The repository's `.gitignore` excludes `*.conf`, `*.key`, `*.wg`, logs and `state/`; still, never commit, paste or attach them. vpngo writes its registry files with owner-only permissions.
 
@@ -278,6 +308,9 @@ windows/    PowerShell launcher, cmd shim and installer
 shared/     Profiles, assignments, app discovery, Mihomo config generation, i18n
 tests/      Automated tests and a manual probe app for live route checks
 docs/       Setup guides in English and Portuguese
+packaging/  Download-and-install scripts and release notes template
+tools/      Release build and tagging scripts
+.github/    Release workflow
 ```
 
 The automated tests need no VPN connection:
@@ -299,6 +332,32 @@ vpngo stop vpngo-probe
 
 After `switch`, the logged IP should become the new exit's IP. The [step-by-step guide](docs/HOWTO.md#7-problems-and-checks) shows how to run two probes in parallel.
 
+### Releases
+
+Versions follow [Semantic Versioning](https://semver.org): `1.2.3`, or `1.2.3-rc.1` for a pre-release. Each release is a git tag `v1.2.3`.
+
+To publish one, commit and push your changes on `main`, then run:
+
+```sh
+tools/tag-release.sh 1.2.3
+```
+
+The script checks that `main` is clean and matches `origin/main`, runs the tests and a local build, then creates and pushes the annotated tag `v1.2.3`. The tag starts the [Release workflow](.github/workflows/release.yml), which:
+
+1. runs the tests;
+2. builds the Linux, macOS and Windows archives in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`, the three download-and-install scripts and `SHA256SUMS`;
+3. installs and upgrades vpngo with each installer on Linux, macOS and Windows runners;
+4. publishes the GitHub release with install instructions and generated notes. Versions with a suffix such as `-rc.1` are marked as pre-releases.
+
+Running the workflow by hand from the Actions tab does steps 1–3 without publishing. To build locally (Python 3.14 or newer, for `.tar.zst`):
+
+```sh
+python3 tools/build_release.py --version 1.2.3 --out dist
+cd dist && sha256sum -c SHA256SUMS
+```
+
+Builds are reproducible: the same commit and version always produce the same files and checksums.
+
 ## Contributing
 
 Contributions are welcome, especially:
@@ -307,4 +366,8 @@ Contributions are welcome, especially:
 - reports from **other VPN providers and paid plans**: which provider, whether `profile add` accepted the file, and whether the route worked;
 - fixes for applications whose helpers escape the route.
 
-Include the OS, the routing engine version (vopono or Mihomo), the application, and the routes or public IPs you observed. **Remove private keys, preshared keys, endpoints you consider private and controller secrets** from every report.
+Include the OS, the vpngo version (`vpngo version`), the routing engine version (vopono or Mihomo), the application, and the routes or public IPs you observed. **Remove private keys, preshared keys, endpoints you consider private and controller secrets** from every report.
+
+## License
+
+vpngo is free software under the [Apache License 2.0](LICENSE). You may use, modify and redistribute it for any purpose, including commercially. Every copy or derived work you distribute must keep the [LICENSE](LICENSE) and [NOTICE](NOTICE) files, which credit vpngo and its author, [GustavoHSCruz](https://github.com/GustavoHSCruz), and must state the files you changed.

@@ -12,7 +12,13 @@ from profiles import load as load_profiles, profile_key, register, resolve
 
 
 PROJECT = Path(__file__).resolve().parent.parent
-GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper"}
+GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper", "version"}
+
+
+def version():
+    """Release builds ship a VERSION file; a source checkout reports dev."""
+    path = PROJECT / "VERSION"
+    return path.read_text(encoding="utf-8").strip() if path.is_file() else "dev"
 
 
 def backend(*arguments):
@@ -42,7 +48,7 @@ def usage():
     print("Usage: vpngo profile add <name> <wireguard.conf> | profile list | "
           "assign <app> <profile> | start <app> [profile] | stop <app> | switch <app> <profile> | "
           "status|on|off <app> | policy <app> killswitch|dns on|off | "
-          "helper add <app> <executable>", file=sys.stderr)
+          "helper add <app> <executable> | version", file=sys.stderr)
     return 2
 
 
@@ -51,6 +57,9 @@ def main(argv=None):
     if not args:
         return usage()
     command = args[0]
+    if command == "version" and len(args) == 1:
+        print(f"vpngo {version()}")
+        return 0
     if command == "profile":
         if len(args) == 2 and args[1] == "list":
             print("\n".join(sorted(load_profiles())) or "No VPN profiles configured.")
