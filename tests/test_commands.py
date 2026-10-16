@@ -29,6 +29,72 @@ import profiles
 
 
 class UnifiedCommandTest(unittest.TestCase):
+    def test_temporary_run_uses_profile_without_saving_assignment(self):
+        with (patch.object(commands, "resolve"),
+              patch.object(commands, "backend", return_value=0) as backend,
+              patch.object(commands, "assign") as assign):
+            self.assertEqual(commands.main(["--temp", "east", "./dota2"]), 0)
+            self.assertEqual(commands.main(["start", "./dota2", "east", "--temp"]), 0)
+        self.assertEqual(backend.call_count, 2)
+        backend.assert_any_call("--temp", "east", "./dota2")
+        assign.assert_not_called()
+
+    def test_detached_temporary_run_accepts_only_documented_flags(self):
+        with (patch.object(commands, "resolve"),
+              patch.object(commands, "backend", return_value=0) as backend,
+              patch.dict(os.environ, {"VPNGO_LANG": "en-US"}),
+              contextlib.redirect_stderr(io.StringIO()) as errors):
+            self.assertEqual(commands.main(["--temp", "east", "kitty", "-d"]), 0)
+            self.assertEqual(commands.main(["start", "kitty", "east", "--temp", "--detach"]), 0)
+            self.assertEqual(commands.main(["--tempo", "east", "kitty"]), 2)
+            self.assertEqual(commands.main(["--temp", "east", "kitty", "--detatch"]), 2)
+        self.assertEqual(backend.call_count, 2)
+        backend.assert_any_call("--temp", "east", "kitty", "-d")
+        self.assertIn("vpngo --temp <profile> <executable> [-d]", errors.getvalue())
+
+    def test_short_usage_and_described_help(self):
+        with patch.dict(os.environ, {"VPNGO_LANG": "en-US"}), contextlib.redirect_stderr(io.StringIO()) as output:
+            self.assertEqual(commands.main([]), 2)
+        self.assertEqual(output.getvalue().count("\n"), 4)
+        with patch.dict(os.environ, {"VPNGO_LANG": "en-US"}), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(commands.main(["help"]), 0)
+        self.assertIn("Run once without saving", output.getvalue())
+        self.assertIn("-d, --detach", output.getvalue())
+        self.assertIn("vpngo help <command>", output.getvalue())
+
+    def test_every_command_has_read_only_topic_help(self):
+        topics = (
+            "help", "profile", "profile add", "profile list", "assign", "start",
+            "--temp", "switch", "stop", "status", "on", "off", "policy",
+            "policy killswitch", "policy dns", "helper", "helper add", "config", "version",
+            "setup", "profiles", "-d",
+        )
+        with (patch.dict(os.environ, {"VPNGO_LANG": "en-US"}),
+              patch.object(commands, "backend") as backend):
+            for topic in topics:
+                with self.subTest(topic=topic), contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(commands.main(["help", *topic.split()]), 0)
+                    self.assertTrue(output.getvalue().startswith("Usage: vpngo"))
+            backend.assert_not_called()
+        with (patch.dict(os.environ, {"VPNGO_LANG": "pt-BR"}),
+              contextlib.redirect_stdout(io.StringIO()) as output):
+            self.assertEqual(commands.main(["help", "switch"]), 0)
+            self.assertIn("Troca o perfil VPN", output.getvalue())
+
+    def test_unknown_help_topic_is_an_error(self):
+        with contextlib.redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(commands.main(["help", "unknown"]), 2)
+        self.assertIn("vpngo help", errors.getvalue())
+
+    def test_windows_temporary_run_uses_positional_backend_token(self):
+        with (patch.object(commands.sys, "platform", "win32"),
+              patch.object(commands, "resolve"),
+              patch.object(commands, "backend", return_value=0) as backend):
+            self.assertEqual(commands.main(["--temp", "east", "dota2.exe"]), 0)
+            self.assertEqual(commands.main(["--temp", "east", "dota2.exe", "-d"]), 0)
+        backend.assert_any_call("temp", "east", "dota2.exe")
+        backend.assert_any_call("temp", "east", "dota2.exe", "detach")
+
     def test_assignment_persists_and_start_uses_it(self):
         private = base64.b64encode(b"a" * 32).decode()
         public = base64.b64encode(b"b" * 32).decode()

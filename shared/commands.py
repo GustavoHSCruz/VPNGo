@@ -8,11 +8,15 @@ from pathlib import Path
 
 from apps import AppError, add_path, find, key
 from assignments import add_helper, assign, get, load, set_policy
+from help_topics import get as help_for
+from i18n import tr
 from profiles import load as load_profiles, profile_key, register, resolve
 
 
 PROJECT = Path(__file__).resolve().parent.parent
 GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper", "version"}
+TEMP_FLAGS = {"--temp"}
+DETACH_FLAGS = {"-d", "--detach"}
 
 
 def version():
@@ -44,12 +48,9 @@ def configure_profile(path, profile):
     return 0
 
 
-def usage():
-    print("Usage: vpngo profile add <name> <wireguard.conf> | profile list | "
-          "assign <app> <profile> | start <app> [profile] | stop <app> | switch <app> <profile> | "
-          "status|on|off <app> | policy <app> killswitch|dns on|off | "
-          "helper add <app> <executable> | version", file=sys.stderr)
-    return 2
+def usage(exit_code=2, full=False):
+    print(tr("help" if full else "usage"), file=sys.stderr if exit_code else sys.stdout)
+    return exit_code
 
 
 def main(argv=None):
@@ -57,6 +58,16 @@ def main(argv=None):
     if not args:
         return usage()
     command = args[0]
+    if command in {"help", "--help", "-h"}:
+        if len(args) == 1:
+            return usage(0, full=True)
+        topic = " ".join(args[1:])
+        description = help_for(topic)
+        if description is None:
+            print(tr("help_unknown", topic=topic), file=sys.stderr)
+            return 2
+        print(description)
+        return 0
     if command == "version" and len(args) == 1:
         print(f"vpngo {version()}")
         return 0
@@ -71,6 +82,17 @@ def main(argv=None):
         item = assign(args[1], args[2])
         print(f"{args[1]} assigned to profile '{item['profile']}'.")
         return 0
+    direct_temp = command in TEMP_FLAGS and len(args) in {3, 4} and (len(args) == 3 or args[3] in DETACH_FLAGS)
+    start_temp = (command == "start" and len(args) in {4, 5} and args[3] in TEMP_FLAGS and
+                  (len(args) == 4 or args[4] in DETACH_FLAGS))
+    if direct_temp or start_temp:
+        profile, application = (args[1], args[2]) if direct_temp else (args[2], args[1])
+        profile = profile_key(profile)
+        resolve(profile)
+        arguments = ["temp" if sys.platform == "win32" else "--temp", profile, application]
+        if len(args) == (4 if direct_temp else 5):
+            arguments.append("detach" if sys.platform == "win32" else "-d")
+        return backend(*arguments)
     if command == "start" and len(args) in {2, 3}:
         application = args[1]
         profile = args[2] if len(args) == 3 else get(application)["profile"]

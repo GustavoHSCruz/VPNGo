@@ -22,9 +22,73 @@ function Invoke-Control([string]$Name, [string]$Command) {
 
 try {
     if (-not $Application) {
-        throw 'Usage: vpngo config <path> | setup <wireguard.conf> [profile] | profiles | <application> [start [profile]|stop|on|off|status]'
+        & $Python (Join-Path $Project 'shared/commands.py')
+        exit 2
     }
-    if ($Application -in @('profile','assign','start','stop','switch','status','on','off','policy','helper','version')) {
+    if ($Application -eq 'temp-wait') {
+        if (-not $Action -or -not $Profile -or $args.Count -ne 0) { throw 'Invalid temporary worker arguments.' }
+        try {
+            $Child = Start-Process -FilePath $Profile -Wait -PassThru
+            $ChildExitCode = $Child.ExitCode
+        } finally {
+            Invoke-Python 'shared/managed.py' @('temp-cleanup', $Action) | Out-Null
+        }
+        exit $ChildExitCode
+    }
+    if ($Application -eq 'temp') {
+        if (-not $Action -or -not $Profile -or $args.Count -gt 1 -or
+            ($args.Count -eq 1 -and $args[0] -ne 'detach')) {
+            throw 'Usage: vpngo --temp <profile> <executable> [-d|--detach]'
+        }
+        $Detached = $args.Count -eq 1
+        $Resolved = Invoke-Python 'shared/managed.py' @('temp-resolve', $Profile) | ConvertFrom-Json
+        $ProcessName = [System.IO.Path]::GetFileNameWithoutExtension($Resolved.process)
+        if (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue) {
+            throw "$ProcessName is already running; close it before a temporary VPN run."
+        }
+        $AppJson = Invoke-Python 'shared/managed.py' @('temp-prepare', $Profile, $Action)
+        $App = $AppJson | ConvertFrom-Json
+        $TempPrepared = $true
+        try {
+            $Mihomo = if ($env:VPNGO_MIHOMO) { $env:VPNGO_MIHOMO } else {
+                (Get-Command mihomo.exe -ErrorAction Stop).Source
+            }
+            & $Python $Controller $App.process status *> $null
+            if ($LASTEXITCODE -ne 0) {
+                $Config = Join-Path $State 'config.yaml'
+                $Arguments = @('-d', ('"' + $State + '"'), '-f', ('"' + $Config + '"'))
+                Start-Process -FilePath $Mihomo -ArgumentList $Arguments -Verb RunAs | Out-Null
+                $Ready = $false
+                for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
+                    Start-Sleep -Seconds 1
+                    & $Python $Controller $App.process status *> $null
+                    if ($LASTEXITCODE -eq 0) { $Ready = $true; break }
+                }
+                if (-not $Ready) { throw "Mihomo did not start. Check its elevated window and $State\config.yaml." }
+            }
+            if ($Detached) {
+                $WorkerScript = $PSCommandPath.Replace("'", "''")
+                $WorkerProcess = $App.process.Replace("'", "''")
+                $WorkerLaunch = $App.launch.Replace("'", "''")
+                $WorkerCommand = "& '$WorkerScript' temp-wait '$WorkerProcess' '$WorkerLaunch'"
+                $Encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($WorkerCommand))
+                $Worker = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') `
+                    -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$Encoded) `
+                    -WindowStyle Hidden -PassThru `
+                    -RedirectStandardOutput (Join-Path $State 'temp.log') `
+                    -RedirectStandardError (Join-Path $State 'temp-error.log')
+                $TempPrepared = $false
+                Write-Output "$Profile started through the VPN (PID $($Worker.Id)). You can close this terminal."
+                exit 0
+            }
+            $Child = Start-Process -FilePath $App.launch -Wait -PassThru
+            $ChildExitCode = $Child.ExitCode
+        } finally {
+            if ($TempPrepared) { Invoke-Python 'shared/managed.py' @('temp-cleanup', $App.process) | Out-Null }
+        }
+        exit $ChildExitCode
+    }
+    if ($Application -in @('profile','assign','start','stop','switch','status','on','off','policy','helper','version','help')) {
         $CliArgs = @($Application)
         if ($Action) { $CliArgs += $Action }
         if ($Profile) { $CliArgs += $Profile }

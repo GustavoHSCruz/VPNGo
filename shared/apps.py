@@ -181,6 +181,20 @@ def find(name):
     raise AppError(f"Application '{name}' was not found. Add its executable or bin folder with: vpngo config <path>")
 
 
+def find_temporary(name):
+    """Resolve a one-off executable without adding it to the app registry."""
+    if os.path.isabs(name) or os.sep in name or (os.altsep and os.altsep in name):
+        return describe(Path(name))
+    local = Path.cwd() / name
+    if local.exists():
+        return describe(local)
+    if os.name == "nt" and not local.suffix:
+        executable = local.with_suffix(".exe")
+        if executable.exists():
+            return describe(executable)
+    return find(name)
+
+
 if __name__ == "__main__":
     try:
         if len(sys.argv) == 3 and sys.argv[1] == "config":

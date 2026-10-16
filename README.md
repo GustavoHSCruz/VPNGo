@@ -240,6 +240,17 @@ vpngo on browser-app
 vpngo stop browser-app
 ```
 
+For a one-off run, pass an executable and a registered profile:
+
+```sh
+vpngo --temp germany /home/me/games/dota2
+cd /home/me/games
+vpngo --temp germany dota2
+vpngo --temp germany kitty -d
+```
+
+`--temp` checks the current directory first for a bare executable name. It also accepts an absolute or relative path, then falls back to normal executable discovery. It does not save an app-to-profile assignment or register the executable. Without `-d`, the command stays active until the launched process exits. Add `-d` or `--detach` to close the original terminal while the app runs. The VPN session ends when the app exits. On macOS and Windows, close any already running instance of the same program first: Mihomo routes by process name, so it cannot distinguish two copies of that program.
+
 Replace `browser-app` and `chat-app` with the executable names of your applications.
 
 - `assign` saves the profile, and later starts reuse it.
@@ -264,6 +275,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo profile list` | List registered profiles. |
 | `vpngo assign <app> <profile>` | Save the profile used by future `start` commands. |
 | `vpngo start <app> [profile]` | Close and launch the app on its saved or specified profile. |
+| `vpngo --temp <profile> <executable> [-d\|--detach]` | Run an executable once on the profile without saving an assignment. Add `-d` to close the original terminal. `vpngo start <executable> <profile> --temp` is equivalent. |
 | `vpngo stop <app>` | Close the app and end its managed VPN session. On macOS/Windows, block that app's selector while leaving Mihomo available to others. |
 | `vpngo switch <app> <profile>` | Change a running app's profile and save the new assignment after success. |
 | `vpngo status <app>` | Show the app's active route and saved settings. |
@@ -273,6 +285,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo helper add <app> <executable>` | Register a known helper executable for Mihomo process matching. |
 | `vpngo version` | Show the installed version (`dev` in a source checkout). |
 | `vpngo config <path>` | Register an executable, executable folder, or macOS `.app` bundle. |
+| `vpngo help <command>` | Show a command's syntax and options, for example `vpngo help start`. |
 
 The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app-first form still work. On Windows, run the commands in PowerShell.
 

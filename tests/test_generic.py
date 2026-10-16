@@ -29,11 +29,21 @@ os.environ.update(HOME=str(TEST_HOME), XDG_CONFIG_HOME=str(TEST_HOME / ".config"
 import apps
 import control
 import generate_mihomo
+import managed
 import profiles
 from generate_mihomo import build_config, group_name, profile_proxy
 
 
 class ApplicationDiscoveryTest(unittest.TestCase):
+    def test_temporary_executable_prefers_current_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "dota2"
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o700)
+            with patch.object(apps.Path, "cwd", return_value=Path(temporary)):
+                self.assertEqual(apps.find_temporary("dota2")["launch"], str(executable))
+                self.assertEqual(apps.find_temporary(str(executable))["launch"], str(executable))
+
     def test_configured_directory_finds_executable(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -75,6 +85,19 @@ class MihomoControllerTest(unittest.TestCase):
 
 
 class MihomoRouteTest(unittest.TestCase):
+    def test_temporary_route_is_removed_after_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            app = {"executable": "/games/dota2", "launch": "/games/dota2", "process": "dota2"}
+            with (patch.object(managed, "MANAGED", Path(temporary) / "managed.json"),
+                  patch.object(managed, "find_temporary", return_value=app),
+                  patch.object(managed, "resolve"),
+                  patch.object(managed, "reload_runtime") as reload_runtime):
+                managed.prepare("./dota2", "east", temporary=True)
+                self.assertTrue(managed.load_managed()["dota2"]["temporary"])
+                managed.cleanup_temporary("dota2")
+                self.assertEqual(managed.load_managed(), {})
+                self.assertEqual(reload_runtime.call_count, 2)
+
     def test_two_profiles_route_to_different_wireguard_peers(self):
         def wireguard(host, ip):
             return {
@@ -274,6 +297,50 @@ class MihomoRouteTest(unittest.TestCase):
 
 
 class LinuxCommandTest(unittest.TestCase):
+    def test_temporary_run_stays_foreground_and_does_not_close_other_instances(self):
+        loader = importlib.machinery.SourceFileLoader(
+            "vpngo_linux_temp_test", str(ROOT / "linux/vpngo")
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        script = importlib.util.module_from_spec(spec)
+        loader.exec_module(script)
+        with (patch.object(script, "resolve", return_value=Path("/tmp/east.conf")),
+              patch.object(script, "find_temporary", return_value={"launch": "/games/dota2"}),
+              patch.object(script.shutil, "which", return_value="/usr/bin/vopono"),
+              patch.object(script.subprocess, "call", return_value=0),
+              patch.object(script.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run,
+              patch.object(script, "close_app") as close):
+            self.assertEqual(script.temporary_app("east", "dota2"), 0)
+        close.assert_not_called()
+        command = run.call_args.args[0]
+        self.assertEqual(command[:2], ["vopono", "exec"])
+        self.assertEqual(command[-1], "/games/dota2")
+
+    def test_detached_temporary_run_waits_for_namespace(self):
+        loader = importlib.machinery.SourceFileLoader(
+            "vpngo_linux_detached_test", str(ROOT / "linux/vpngo")
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        script = importlib.util.module_from_spec(spec)
+        loader.exec_module(script)
+        status = {"namespaces": [{"id": "vg_temp_42_100", "applications": [{"argv": ["/usr/bin/kitty"]}]}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            with (patch.object(script, "STATE_DIR", Path(temporary)),
+                  patch.object(script, "resolve", return_value=Path("/tmp/east.conf")),
+                  patch.object(script, "find_temporary", return_value={"launch": "/usr/bin/kitty"}),
+                  patch.object(script.shutil, "which", return_value="/usr/bin/vopono"),
+                  patch.object(script.subprocess, "call", return_value=0),
+                  patch.object(script.subprocess, "Popen") as popen,
+                  patch.object(script, "run", return_value=SimpleNamespace(returncode=0, stdout=json.dumps(status))),
+                  patch.object(script.os, "getpid", return_value=42),
+                  patch.object(script.time, "time", return_value=100),
+                  contextlib.redirect_stdout(io.StringIO())):
+                self.assertEqual(script.temporary_app("east", "kitty", detached=True), 0)
+            command = popen.call_args.args[0]
+            self.assertEqual(command[:2], ["nohup", "vopono"])
+            self.assertEqual(command[-1], "/usr/bin/kitty")
+            self.assertEqual((Path(temporary) / "temp.log").stat().st_mode & 0o777, 0o600)
+
     def test_stop_closes_only_target_namespace_and_cleans_session_files(self):
         loader = importlib.machinery.SourceFileLoader(
             "vpngo_linux_stop_test", str(ROOT / "linux/vpngo")

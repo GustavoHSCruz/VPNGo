@@ -324,10 +324,14 @@ Os comandos são os mesmos em todos os sistemas. Troque `app` pelo nome do progr
 | `vpngo profile list` | Lista seus perfis. |
 | `vpngo start <app> [perfil]` | Fecha o aplicativo e abre pela VPN dele. Com um perfil, também guarda essa escolha. |
 | `vpngo assign <app> <perfil>` | Muda o perfil que o aplicativo vai usar da próxima vez, sem abrir. |
+| `vpngo --temp <perfil> <executável> [-d\|--detach]` | Executa uma vez sem salvar a atribuição. Aceita caminho absoluto ou relativo; um nome simples é procurado primeiro na pasta atual. Com `-d`, você pode fechar o terminal de origem. `vpngo start <executável> <perfil> --temp` é equivalente. |
 | `vpngo status <app>` | Mostra se o aplicativo está na VPN e qual perfil usa. |
 | `vpngo switch <app> <perfil>` | Passa um aplicativo aberto para outro perfil sem fechar. |
 | `vpngo off <app>` / `vpngo on <app>` | Passa um aplicativo aberto para a sua conexão normal, ou de volta para a VPN. |
 | `vpngo stop <app>` | Fecha o aplicativo e encerra a sessão de VPN dele. |
+| `vpngo help <comando>` | Mostra a sintaxe e as opções de um comando, por exemplo `vpngo help switch`. |
+
+Por exemplo, estando em `/games`, execute `vpngo --temp brasil dota2 -d` para usar `/games/dota2` sem manter o terminal de origem aberto. A sessão termina quando o aplicativo fecha. No macOS e Windows, feche outras instâncias do mesmo programa antes: o roteamento do Mihomo usa o nome do processo.
 
 Você pode rodar vários aplicativos ao mesmo tempo, cada um no seu perfil:
 

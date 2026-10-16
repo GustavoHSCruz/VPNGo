@@ -6,7 +6,7 @@ import sys
 import time
 import urllib.error
 
-from apps import AppError, find, key
+from apps import AppError, find, find_temporary, key
 from assignments import get as assignment_for
 from generate_mihomo import STATE, build_config, controller, group_name, private_write, profile_proxy
 from profiles import parsed_profiles, profile_key, resolve
@@ -56,13 +56,15 @@ def reload_runtime():
     return True
 
 
-def prepare(application, profile="default"):
-    app = find(application)
-    assignment = assignment_for(application)
+def prepare(application, profile="default", temporary=False):
+    app = find_temporary(application) if temporary else find(application)
+    assignment = {"helpers": [], "dns": False} if temporary else assignment_for(application)
     profile = profile_key(profile)
     resolve(profile)
-    name = key(application)
+    name = key(app["process"]) if temporary else key(application)
     data = load_managed()
+    if temporary and name in data:
+        raise AppError(f"'{application}' already has a managed route; stop it before a temporary run.")
     for other_name, item in data.items():
         if other_name != name and item["process"].casefold() == app["process"].casefold():
             raise AppError(
@@ -79,6 +81,8 @@ def prepare(application, profile="default"):
     previous = json.loads(json.dumps(data))
     data[name] = {**app, "profile": profile, "enabled": True, "blocked": False,
                   "helpers": assignment.get("helpers", []), "dns": assignment.get("dns", False)}
+    if temporary:
+        data[name]["temporary"] = True
     save_managed(data)
     try:
         reload_runtime()
@@ -92,7 +96,26 @@ def prepare(application, profile="default"):
     return app
 
 
+def cleanup_temporary(application):
+    name = key(application)
+    data = load_managed()
+    if name not in data or not data[name].get("temporary"):
+        raise AppError(f"'{application}' has no temporary route to remove.")
+    del data[name]
+    save_managed(data)
+    reload_runtime()
+
+
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "temp-resolve":
+        print(json.dumps(find_temporary(sys.argv[2]), ensure_ascii=False))
+        return 0
+    if len(sys.argv) == 4 and sys.argv[1] == "temp-prepare":
+        print(json.dumps(prepare(sys.argv[2], sys.argv[3], temporary=True), ensure_ascii=False))
+        return 0
+    if len(sys.argv) == 3 and sys.argv[1] == "temp-cleanup":
+        cleanup_temporary(sys.argv[2])
+        return 0
     if sys.argv[1:] == ["reload"]:
         print("Mihomo configuration reloaded." if reload_runtime() else "Mihomo is not running; configuration is ready.")
         return 0

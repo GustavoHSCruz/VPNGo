@@ -15,15 +15,78 @@ project=$(CDPATH= cd -- "$(dirname -- "$source")/.." && pwd)
 state="$HOME/.local/state/vpngo/mihomo"
 python=${VPNGO_PYTHON:-python3}
 
+if [ "$#" -eq 3 ] && [ "$1" = temp-wait ]; then
+    process=$2
+    launch=$3
+    cleanup() { "$python" "$project/shared/managed.py" temp-cleanup "$process"; }
+    trap cleanup 0
+    case "$launch" in
+        *.app) open -W -a "$launch" ;;
+        *) "$launch" ;;
+    esac
+    exit $?
+fi
+
 if [ "$#" -gt 0 ]; then
     case "$1" in
-        profile|assign|start|stop|switch|status|on|off|policy|helper|version)
+        profile|assign|start|stop|switch|status|on|off|policy|helper|version|help|--help|-h)
             exec "$python" "$project/shared/commands.py" "$@" ;;
     esac
 fi
 
+if [ "$#" -ge 3 ] && [ "$#" -le 4 ] && [ "$1" = --temp ]; then
+    detached=0
+    if [ "$#" -eq 4 ]; then
+        case "$4" in -d|--detach) detached=1 ;; *) "$python" "$project/shared/commands.py" >&2; exit 2 ;; esac
+    fi
+    profile=$2
+    application=$3
+    resolved=$("$python" "$project/shared/managed.py" temp-resolve "$application")
+    process=$(printf '%s' "$resolved" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["process"])')
+    if pgrep -u "$(id -u)" -x "$process" >/dev/null 2>&1; then
+        printf '%s\n' "$process is already running; close it before a temporary VPN run." >&2
+        exit 1
+    fi
+    app_json=$("$python" "$project/shared/managed.py" temp-prepare "$application" "$profile")
+    process=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["process"])')
+    launch=$(printf '%s' "$app_json" | "$python" -c 'import json,sys; print(json.load(sys.stdin)["launch"])')
+    cleanup() { "$python" "$project/shared/managed.py" temp-cleanup "$process"; }
+    trap cleanup 0
+    mihomo=${VPNGO_MIHOMO:-$(command -v mihomo || true)}
+    [ -n "$mihomo" ] && [ -x "$mihomo" ] || { printf '%s\n' 'mihomo executable not found.' >&2; exit 1; }
+    if ! "$python" "$project/shared/control.py" "$process" status >/dev/null 2>&1; then
+        sudo -v
+        nohup sudo -n "$mihomo" -d "$state" -f "$state/config.yaml" \
+            >> "$state/mihomo.log" 2>&1 < /dev/null &
+        ready=0
+        count=0
+        while [ "$count" -lt 30 ]; do
+            if "$python" "$project/shared/control.py" "$process" status >/dev/null 2>&1; then
+                ready=1
+                break
+            fi
+            sleep 1
+            count=$((count + 1))
+        done
+        [ "$ready" -eq 1 ] || { printf '%s\n' "Mihomo did not start. See $state/mihomo.log" >&2; exit 1; }
+    fi
+    if [ "$detached" -eq 1 ]; then
+        umask 077
+        nohup "$source" temp-wait "$process" "$launch" >> "$state/temp.log" 2>&1 < /dev/null &
+        worker=$!
+        trap - 0
+        printf '%s\n' "$application started through the VPN (PID $worker). You can close this terminal."
+        exit 0
+    fi
+    case "$launch" in
+        *.app) open -W -a "$launch" ;;
+        *) "$launch" ;;
+    esac
+    exit $?
+fi
+
 usage() {
-    printf '%s\n' 'Usage: vpngo config <path> | setup <wireguard.conf> [profile] | profiles | <application> [start [profile]|stop|on|off|status]' >&2
+    "$python" "$project/shared/commands.py" >&2
     exit 2
 }
 

@@ -5,7 +5,28 @@ import os
 
 MESSAGES = {
     "en-US": {
-        "usage": "Usage: vpngo config <bin-dir|executable> | setup <wireguard.conf> [profile] | profiles | <application> [start [profile]|stop|on|off|status]",
+        "usage": "VPNGo — route apps through WireGuard.\n"
+                 "Usage: vpngo start <app> [profile]\n"
+                 "       vpngo --temp <profile> <executable> [-d]\n"
+                 "Run 'vpngo help' for all commands.",
+        "help": "VPNGo — route apps through WireGuard.\n\n"
+                "  vpngo profile add <name> <file.conf>         Save a VPN profile\n"
+                "  vpngo profile list                          List profiles\n"
+                "  vpngo assign <app> <profile>                 Save an app's profile\n"
+                "  vpngo start <app> [profile]                  Start an app on the VPN\n"
+                "  vpngo --temp <profile> <executable> [-d]     Run once without saving\n"
+                "  vpngo start <executable> <profile> --temp [-d]  Same temporary run\n"
+                "  vpngo switch <app> <profile>                 Change the active profile\n"
+                "  vpngo stop <app>                             Stop the app and VPN session\n"
+                "  vpngo status <app>                           Show the app's route\n"
+                "  vpngo on|off <app>                           Select VPN or direct route\n"
+                "  vpngo policy <app> killswitch|dns on|off     Set routing policy\n"
+                "  vpngo helper add <app> <executable>          Route a helper process\n"
+                "  vpngo config <path>                          Register an app path\n"
+                "  vpngo version                                Show the version\n\n"
+                "  -d, --detach                                 Return to prompt while the app runs\n"
+                "  vpngo help <command>                         Explain a command and its options",
+        "help_unknown": "Unknown help topic '{topic}'. Run 'vpngo help' to list commands.",
         "profile_configured": "VPN profile '{profile}' registered from {path}.",
         "profiles_none": "No VPN profiles configured.",
         "extra_apps": "Other applications share this namespace; network was not changed.",
@@ -51,7 +72,28 @@ MESSAGES = {
         "app_not_started": "{app} is not managed yet. Start it with 'vpngo {app}'.",
     },
     "pt-BR": {
-        "usage": "Uso: vpngo config <pasta-bin|executável> | setup <wireguard.conf> [perfil] | profiles | <aplicação> [start [perfil]|stop|on|off|status]",
+        "usage": "VPNGo — aplicativos pela VPN WireGuard.\n"
+                 "Uso: vpngo start <app> [perfil]\n"
+                 "     vpngo --temp <perfil> <executável> [-d]\n"
+                 "Execute 'vpngo help' para ver todos os comandos.",
+        "help": "VPNGo — aplicativos pela VPN WireGuard.\n\n"
+                "  vpngo profile add <nome> <arquivo.conf>      Salva um perfil VPN\n"
+                "  vpngo profile list                          Lista os perfis\n"
+                "  vpngo assign <app> <perfil>                  Salva o perfil do app\n"
+                "  vpngo start <app> [perfil]                   Abre o app pela VPN\n"
+                "  vpngo --temp <perfil> <executável> [-d]     Executa uma vez, sem salvar\n"
+                "  vpngo start <executável> <perfil> --temp [-d]  Mesmo uso temporário\n"
+                "  vpngo switch <app> <perfil>                  Troca o perfil em uso\n"
+                "  vpngo stop <app>                             Fecha o app e sua sessão VPN\n"
+                "  vpngo status <app>                           Mostra a rota do app\n"
+                "  vpngo on|off <app>                           Seleciona VPN ou rota direta\n"
+                "  vpngo policy <app> killswitch|dns on|off     Define a política de rota\n"
+                "  vpngo helper add <app> <executável>          Inclui um processo auxiliar\n"
+                "  vpngo config <caminho>                       Cadastra o caminho do app\n"
+                "  vpngo version                                Mostra a versão\n\n"
+                "  -d, --detach                                 Libera o terminal; o app continua aberto\n"
+                "  vpngo help <comando>                         Explica um comando e suas opções",
+        "help_unknown": "Ajuda desconhecida: '{topic}'. Execute 'vpngo help' para listar os comandos.",
         "profile_configured": "Perfil VPN '{profile}' cadastrado a partir de {path}.",
         "profiles_none": "Nenhum perfil VPN cadastrado.",
         "extra_apps": "Outros aplicativos compartilham este namespace; a rede não foi alterada.",
