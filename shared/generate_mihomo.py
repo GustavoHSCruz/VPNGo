@@ -100,17 +100,28 @@ def parse_wireguard(path):
                 keepalive=keepalive, mtu=mtu)
 
 
-def build_config(profiles, secret, port, managed=None):
+def build_config(profiles, secret, port, managed=None, platform=None):
     managed = managed or {}
+    windows = (platform or sys.platform) == "win32"
     if "private_key" in profiles:  # Existing callers used a single WireGuard profile.
         profiles = {"default": profiles}
     lines = [
         "mode: rule", "log-level: warning", "allow-lan: false", "ipv6: true",
         "find-process-mode: always", "profile:", "  store-selected: false",
         f"external-controller: {scalar(f'127.0.0.1:{port}')}",
-        f"secret: {scalar(secret)}", "tun:", "  enable: true", "  stack: mips",
-        "  auto-route: true", "  auto-detect-interface: true", "  strict-route: true", "  dns-hijack:",
-        "    - 'any:53'", "    - 'tcp://any:53'", "dns:", "  enable: true",
+        f"secret: {scalar(secret)}",
+    ]
+    if windows:
+        # ProxiFyre redirects only selected processes into local SOCKS sockets.
+        # Explicitly disable every global listener and all TUN routing.
+        lines += ["port: 0", "socks-port: 0", "mixed-port: 0", "redir-port: 0",
+                  "tproxy-port: 0", "tun:", "  enable: false", "  auto-route: false",
+                  "  strict-route: false"]
+    else:
+        lines += ["tun:", "  enable: true", "  stack: mips",
+                  "  auto-route: true", "  auto-detect-interface: true", "  strict-route: true", "  dns-hijack:",
+                  "    - 'any:53'", "    - 'tcp://any:53'"]
+    lines += ["dns:", "  enable: true",
         "  ipv6: true", "  enhanced-mode: redir-host", "  nameserver:",
         "    - '1.1.1.1'", "    - '9.9.9.9'", "proxies:",
     ]
@@ -141,6 +152,19 @@ def build_config(profiles, secret, port, managed=None):
             lines += [f"      - {profile_proxy(name)}" for name in sorted(profiles)]
             selected = "REJECT" if data.get("blocked") else proxy if data["enabled"] else "DIRECT"
             lines.append(f"    default-selected: {selected}")
+    if windows:
+        from windows_backend import build_proxifyre_config, credentials, listener_ports
+        build_proxifyre_config(managed, secret, port)  # Validate before emitting any rules.
+        if managed:
+            lines.append("listeners:")
+        for application, listener_port in listener_ports(managed, port).items():
+            username, password = credentials(application, secret)
+            lines += [f"  - name: {group_name(application)}-in", "    type: socks",
+                      "    listen: 127.0.0.1", f"    port: {listener_port}", "    udp: true",
+                      f"    proxy: {group_name(application)}", "    users:",
+                      f"      - username: {scalar(username)}", f"        password: {scalar(password)}"]
+        lines += ["rules:", "  - 'MATCH,REJECT'"]
+        return "\n".join(lines) + "\n"
     lines.append("rules:")
     for application, data in sorted(managed.items()):
         group = group_name(application)
@@ -208,7 +232,14 @@ def main():
     profiles = parsed_profiles()
     settings = controller(args.port)
     managed = json.loads((STATE / "managed.json").read_text(encoding="utf-8"))
+    if sys.platform == "win32":
+        from windows_backend import assign_ports
+        if assign_ports(managed, settings["port"]):
+            private_write(STATE / "managed.json", json.dumps(managed, indent=2))
     private_write(STATE / "config.yaml", build_config(profiles, settings["secret"], settings["port"], managed))
+    if sys.platform == "win32":
+        from windows_backend import write_config
+        write_config(STATE, managed, settings)
     print(tr("config_created", path=STATE / "config.yaml"))
     print(tr("config_private"))
 

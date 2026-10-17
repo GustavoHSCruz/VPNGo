@@ -143,8 +143,16 @@ def reconcile_temporary():
 
 def render():
     settings = controller()
+    data = load_managed()
+    if sys.platform == "win32":
+        from windows_backend import assign_ports
+        if assign_ports(data, int(settings["port"])):
+            save_managed(data)
     private_write(STATE / "config.yaml", build_config(
-        parsed_profiles(), settings["secret"], int(settings["port"]), load_managed()))
+        parsed_profiles(), settings["secret"], int(settings["port"]), data))
+    if sys.platform == "win32":
+        from windows_backend import write_config
+        write_config(STATE, data, settings)
     return settings
 
 
@@ -159,6 +167,10 @@ def reload_runtime():
         raise
     except urllib.error.URLError:
         return False
+    if sys.platform == "win32":
+        config = request(port, secret, "GET", "/configs")
+        if not isinstance(config, dict) or config.get("tun", {}).get("enable", False):
+            raise AppError("Stop the old global Mihomo TUN before using app-only routing.")
     request(port, secret, "PUT", "/configs?force=true", {"path": str(STATE / "config.yaml")})
     for attempt in range(20):
         try:
@@ -199,6 +211,8 @@ def prepare(application, profile="default", temporary=False):
     previous = json.loads(json.dumps(data))
     data[name] = {**app, "profile": profile, "enabled": True, "blocked": False,
                   "helpers": assignment.get("helpers", []), "dns": assignment.get("dns", False)}
+    if sys.platform == "win32" and previous.get(name, {}).get("windows_port"):
+        data[name]["windows_port"] = previous[name]["windows_port"]
     if temporary:
         data[name].update(temporary=True, session=secrets.token_urlsafe(24), created_at=time.time())
     save_managed(data)

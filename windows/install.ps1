@@ -14,3 +14,4 @@ if ($Parts -notcontains $InstallDir) {
     [Environment]::SetEnvironmentVariable('Path', (($Parts + $InstallDir) -join ';'), 'User')
 }
 Write-Output "Installed $Shim. Open a new terminal before using vpngo."
+Write-Output "Windows routing also requires ProxiFyre 2.6.4+ and Windows Packet Filter. Install them explicitly with: powershell -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'install-backend.ps1')`""

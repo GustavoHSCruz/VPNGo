@@ -16,7 +16,7 @@
             "vpngo"
         ]
     ],
-    "notes": "Step-by-step guide: https://github.com/@REPOSITORY@/blob/v@VERSION@/docs/HOWTO.md#3-windows",
+    "notes": "Windows app routing also requires ProxiFyre 2.6.4+ and Windows Packet Filter; see the explicit backend installation step: https://github.com/@REPOSITORY@/blob/v@VERSION@/docs/HOWTO.md#3-windows",
     "checkver": {
         "github": "https://github.com/@REPOSITORY@"
     },

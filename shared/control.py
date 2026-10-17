@@ -33,9 +33,15 @@ def request(port, secret, method, path, payload=None):
 
 def app_connections(port, secret, process_name, helper_paths=(), group=None):
     result = request(port, secret, "GET", "/connections")
-    if not isinstance(result, dict) or not isinstance(result.get("connections"), list):
+    if not isinstance(result, dict) or "connections" not in result:
         raise ValueError(tr("controller_bad"))
-    for connection in result["connections"]:
+    connections = result["connections"]
+    # Mihomo serializes an empty connection snapshot as null.
+    if connections is None:
+        connections = []
+    if not isinstance(connections, list):
+        raise ValueError(tr("controller_bad"))
+    for connection in connections:
         metadata = connection.get("metadata") or {}
         process = str(metadata.get("process") or "")
         process_path = str(metadata.get("processPath") or "")
@@ -45,7 +51,7 @@ def app_connections(port, secret, process_name, helper_paths=(), group=None):
         name = process_name.casefold()
         helper = Path(process_name).stem.casefold() + " helper"
         helper_match = process_path.casefold() in {path.casefold() for path in helper_paths}
-        if ((group is not None and group in chains) or
+        if ((group is not None and (group in chains or metadata.get("inboundName") == group + "-in")) or
                 process.casefold() == name or
                 Path(process_path).name.casefold() == name or
                 process.casefold().startswith(helper) or
@@ -76,6 +82,12 @@ def main():
     current = request(port, secret, "GET", "/proxies/" + group)
     if not isinstance(current, dict) or not isinstance(current.get("now"), str):
         raise ValueError(tr("controller_bad"))
+    filters_active = True
+    if sys.platform == "win32" and action in {"status", "on", "switch", "reconnect"}:
+        from windows_backend import routing_active
+        filters_active = routing_active()
+        if not filters_active and action != "status":
+            raise AppError("Windows process filters are not active. Run 'vpngo start <app>' first.")
     if action == "status":
         if managed[app_key].get("blocked"):
             state = tr("status_stopped") if current["now"] == "REJECT" else tr("status_partial")
@@ -83,8 +95,12 @@ def main():
             state = (tr("status_on") if current["now"] == proxy else
                      tr("status_off") if current["now"] == "DIRECT" else
                      tr("status_partial"))
+        if not filters_active:
+            state = tr("status_partial")
+        routing = ("ProxiFyre process filters + loopback SOCKS (best effort)" if sys.platform == "win32"
+                   else "Mihomo process rules (best effort)")
         print(tr("controller_status", app=app_name, state=state) +
-              f"; profile: {assigned_profile}; routing: Mihomo process rules (best effort)" +
+              f"; profile: {assigned_profile}; routing: {routing}" +
               (f"; temporary session orphaned: run 'vpngo stop {app_name}'"
                if managed[app_key].get("orphaned") else ""))
         return 0

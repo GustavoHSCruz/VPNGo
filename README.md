@@ -8,7 +8,7 @@ chat-app     ──► brazil.conf  ──► VPN exit B
 other apps   ──► usual network
 ```
 
-vpngo is a small command-line launcher. You register WireGuard `.conf` files as named profiles, assign a profile to an application, and start the application through vpngo. You can run several applications on different profiles at the same time and switch one of them to another exit while it is running. On macOS and Windows, routing uses Mihomo process rules and has [important limits](#platform-limits) for DNS, helpers and processes with the same name.
+vpngo is a small command-line launcher. You register WireGuard `.conf` files as named profiles, assign a profile to an application, and start the application through vpngo. You can run several applications on different profiles at the same time and switch one of them to another exit while it is running. On macOS, routing uses Mihomo process rules inside a shared TUN. On Windows, ProxiFyre redirects selected processes into local Mihomo SOCKS listeners without a TUN, default-route changes, or a system proxy. Both have [important limits](#platform-limits) for DNS, helpers and processes with the same name.
 
 The project was built and tested with the **free WireGuard configurations from Proton VPN**. Any provider works, paid or free, including a WireGuard server you host yourself, if it gives you a standard WireGuard client file that meets the [profile requirements](#profile-requirements).
 
@@ -45,11 +45,12 @@ Every system starts with the same first step: [get your VPN file](docs/HOWTO.md#
 
 ## How it works
 
-| | Linux | macOS and Windows |
-| --- | --- | --- |
-| Routing engine | [vopono](https://github.com/jamesmcm/vopono) | [Mihomo](https://github.com/MetaCubeX/mihomo) |
-| Per-app mechanism | One network namespace and WireGuard interface per started app | One shared TUN with a WireGuard outbound per profile and a selector per app, matched by process rules |
-| What `start` does | Closes running instances, then launches the app inside its own namespace | Closes running instances, regenerates the Mihomo config and launches the app |
+| | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| Routing engine | vopono | Mihomo | Mihomo + ProxiFyre 2.6.4+ + Windows Packet Filter |
+| Per-app mechanism | Network namespace per app | Shared TUN and process rules | Explicit process allowlist; TCP/UDP redirected into an authenticated loopback SOCKS listener per app |
+| Host routing | App namespace | Shared system TUN routes | Default routes, system proxy and system DNS stay as configured |
+| What `start` does | Closes and relaunches the app in its namespace | Prepares TUN rules and relaunches the app | Starts a local proxy, applies process filters, then relaunches the app |
 
 The launchers for each system (`linux/vpngo`, `macos/vpngo`, `windows/vpngo.ps1`) share the same profile, assignment and app-discovery code in `shared/`, so the commands are the same everywhere.
 
@@ -67,7 +68,7 @@ First install what your system needs:
 | --- | --- |
 | Linux | Python 3, vopono, `wg`, `ip`, `ss`, `pgrep`, `ping`, `nft` or `iptables`; `bwrap` for optional DNS isolation |
 | macOS | Python 3, Mihomo on `PATH` or `VPNGO_MIHOMO=/absolute/path/mihomo` |
-| Windows | Python 3, `mihomo.exe` on `PATH` or `VPNGO_MIHOMO` |
+| Windows | Python 3, `mihomo.exe` on `PATH` or `VPNGO_MIHOMO`, ProxiFyre 2.6.4+ and Windows Packet Filter; see [Windows backend setup](docs/WINDOWS.md) |
 
 Then install vpngo from the [latest release](https://github.com/GustavoHSCruz/VPNGo/releases/latest). Each installer downloads the archive for your system, checks it against `SHA256SUMS`, installs it in `~/.local/share/vpngo` (`%LOCALAPPDATA%\vpngo` on Windows) and creates the `vpngo` command. Running it again later upgrades in place and keeps your settings.
 
@@ -118,9 +119,9 @@ What each installer does, and which permission vpngo asks for later:
 
 - **Linux** (`linux/install.sh`): checks the dependencies and links `vpngo` into `~/.local/bin`. `vpngo start` asks for your password with `sudo` to create the app's network namespace.
 - **macOS** (`macos/install.sh`): links `vpngo` into `~/.local/bin`. `vpngo start` asks for your password with `sudo` to start Mihomo.
-- **Windows** (`windows/install.ps1`): creates `vpngo.cmd` in `%USERPROFILE%\bin` and adds that folder to your user `PATH`. `vpngo start` opens the Windows permission prompt to run Mihomo as administrator.
+- **Windows** (`windows/install.ps1`): creates `vpngo.cmd` in `%USERPROFILE%\bin` and adds that folder to your user `PATH`. `vpngo start` requests administrator permission to apply ProxiFyre process filters. Mihomo runs without elevation and without a TUN. Install the additional driver explicitly with `windows/install-backend.ps1` first; it is not installed by the normal vpngo installer.
 
-None of the installers needs administrator rights. The command runs from the installed folder (or your checkout), so don't move it. Open a new terminal if `vpngo` is not found.
+The vpngo launchers can be installed without administrator rights. The separate Windows backend installer requires administrator rights to install Windows Packet Filter and ProxiFyre. The command runs from the installed folder (or your checkout), so don't move it. Open a new terminal if `vpngo` is not found.
 
 The [step-by-step guide](docs/HOWTO.md) ([Português](docs/HOWTO.pt-BR.md)) has complete instructions for each system: dependencies with copy-and-paste commands, what each installer does, the permissions it asks for, and troubleshooting.
 
@@ -283,6 +284,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo policy <app> killswitch on\|off` | Set the Linux per-app fail-closed policy for the next start. Default: on. |
 | `vpngo policy <app> dns on\|off` | Set Linux resolver isolation for the next start. Default: off; needs the kill switch and a DNS IP in the profile. |
 | `vpngo helper add <app> <executable>` | Register a known helper executable for Mihomo process matching. |
+| `vpngo shutdown` | Windows: stop all VPNGo process filters and its local proxy; apps remain open and use their usual connection. |
 | `vpngo version` | Show the installed version (`dev` in a source checkout). |
 | `vpngo config <path>` | Register an executable, executable folder, or macOS `.app` bundle. |
 | `vpngo help <command>` | Show a command's syntax and options, for example `vpngo help start`. |
@@ -291,22 +293,23 @@ The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app
 
 ## Routing and isolation
 
-| Capability | Linux | macOS and Windows |
-| --- | --- | --- |
-| Simultaneous profiles | One vopono namespace and WireGuard interface per started app | One Mihomo TUN with separate WireGuard outbounds and per-app selectors |
-| Live profile switch | Reconfigure only that namespace; verify handshake and roll back on failure | Change only that app's Mihomo selector and close its attributed connections |
-| Kill switch | vopono firewall is on by default; configurable per app | **Not available as a strict per-app guarantee** with this backend; `policy ... killswitch on` is rejected |
-| DNS isolation | Optional namespace DNS plus a private glibc/NSS resolver view; see limits below | **Not available as a strict per-app guarantee**; `policy ... dns on` is rejected |
-| Child and helper traffic | Children spawned inside the namespace inherit it | Main executable and registered helper paths get rules; process attribution is best effort |
+| Capability | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| Simultaneous profiles | Namespace per app | Shared TUN, selector per app | Loopback SOCKS listener and selector per app |
+| Live profile switch | Reconfigure and check handshake; rollback on failure | Change selector and close attributed connections | Change selector and close that listener's connections |
+| Kill switch | Configurable, default on | No strict per-app guarantee | No strict per-app guarantee |
+| DNS isolation | Optional namespace resolver view | No strict per-app guarantee | Windows DNS remains unchanged; no strict per-app guarantee |
+| Child/helper traffic | Children inherit namespace | Best effort process rules | Main executable name and explicitly registered helper paths |
 
 `off` explicitly selects the direct route. While it is active, the Linux `switch` command refuses to change profiles; run `on` first. Policies take effect on the next `start`.
 
-`stop` closes the application. On Linux, vopono tears down its namespace and WireGuard session. On macOS/Windows, vpngo closes the process and its attributed connections and leaves a `REJECT` selector for a persistent app; it removes a temporary app's selector. The shared Mihomo TUN keeps serving other managed apps. `start` reactivates a persistent app. Its profile assignment stays saved.
+`stop` closes the application. On Linux, vopono tears down its namespace and WireGuard session. On macOS/Windows, vpngo closes the process and its attributed connections and leaves a `REJECT` selector for a persistent app; it removes a temporary app's selector. On macOS the shared Mihomo TUN keeps serving other managed apps. On Windows the local proxy and explicit process filters keep serving other managed apps; `vpngo shutdown` stops all of them. `start` reactivates a persistent app. Its profile assignment stays saved.
 
 ### Platform limits
 
 - **Linux namespaces.** Ordinary child processes stay on the same network, but a program that hands work to a service outside the namespace may use that service's route. DNS isolation covers resolver calls that use the app's glibc/NSS view; embedded resolvers, DoH, IPC and external services can bypass it. The kill switch relies on vopono's firewall and should be validated for your app and configuration.
-- **Mihomo process rules (macOS/Windows).** Routing depends on process attribution. The final rule is `MATCH,DIRECT`, so an unmatched helper, a failed lookup or the routing engine stopping can let traffic go direct. Mihomo's global DNS resolvers are `1.1.1.1` and `9.9.9.9`; queries are not bound to the selected VPN profile. A process-name rule can include another instance with the same name. `vpngo helper add` improves matching but does not make the setup fail-closed. A true system-enforced per-app guarantee would need native OS filtering or VPN integration. See the [device checks](docs/HOWTO.md#route-checks-on-windows-and-macos).
+- **Mihomo process rules (macOS).** Routing depends on process attribution. The final rule is `MATCH,DIRECT`, so an unmatched helper, a failed lookup or the routing engine stopping can let traffic go direct. Mihomo's global DNS resolvers are `1.1.1.1` and `9.9.9.9`; queries are not bound to the selected VPN profile. A process-name rule can include another instance with the same name. `vpngo helper add` improves matching but does not make the setup fail-closed. A true system-enforced per-app guarantee would need native OS filtering or VPN integration. See the [device checks](docs/HOWTO.md#route-checks-on-windows-and-macos).
+- **Windows process filters.** ProxiFyre 2.6.4+ redirects only the generated executable allowlist to authenticated local SOCKS listeners. There is no catch-all process rule and no global TUN, DNS hijack or system-proxy change. Adding or removing an app can restart the shared filter service and briefly reconnect other managed apps. Processes with the same executable name share a route; register helpers explicitly. Windows resolver traffic stays on the existing system DNS. Unresolved process ownership and fragmented IPv6 UDP can bypass attribution, so this is not a strict kill switch or private network compartment. See [setup, rollback and checks](docs/WINDOWS.md).
 - **Reconnection.** Existing connections may reconnect slowly or stay disconnected, because retry behavior belongs to the application. vpngo closes attributed Mihomo connections or Linux namespace TCP sockets, but it cannot force every program to retry. When it matters, check the public IP and DNS from inside the application.
 - **Untested launchers.** Windows and macOS behavior has not been verified on real devices. Different executables with the same process name may collide in Mihomo rules; vpngo rejects known conflicts when it prepares an app.
 - **Privacy scope.** vpngo changes routing only. Accounts, cookies, device identifiers and the VPN provider itself may still identify your activity.
@@ -321,6 +324,8 @@ The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app
 | Generated Mihomo config, log and controller secret (macOS/Windows) | `~/.local/state/vpngo/mihomo/` | `%LOCALAPPDATA%\vpngo\mihomo\` |
 
 `.conf` files and the Mihomo folder's `config.yaml` and `controller.json` contain private keys or secrets. The repository's `.gitignore` excludes `*.conf`, `*.key`, `*.wg` and logs; still, never commit, paste or attach them. vpngo writes its registry files with owner-only permissions.
+
+Windows also writes a generated `proxifyre.json` in its Mihomo state folder. The elevated helper applies it to the official ProxiFyre installation only when that installation is unconfigured or owned by the same VPNGo user. Existing unrelated ProxiFyre settings are refused. The local SOCKS TCP/UDP path and unchanged host routes/adapters/proxy are tested; actual ProxiFyre driver routing still needs device validation.
 
 Messages default to English (en-US). Set `VPNGO_LANG=pt-BR` for Portuguese messages (`$env:VPNGO_LANG = 'pt-BR'` in PowerShell). `VPNGO_MIHOMO` and `VPNGO_PYTHON` select custom Mihomo and Python binaries.
 
