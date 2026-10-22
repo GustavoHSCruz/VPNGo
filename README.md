@@ -105,7 +105,7 @@ powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 
 Package managers install vpngo system-wide or in their own folders and update it with their usual upgrade command.
 
-Check the installation with `vpngo version`. Each release also has the archives for manual download in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`; extract one and run the installer inside it (`linux/install.sh`, `macos/install.sh` or `windows\install.ps1`).
+Check the installation with `vpngo version`. Each release also has the archives for manual download (`.tar.gz` for Linux and macOS, `.zip` for Windows); extract one and run the installer inside it (`linux/install.sh`, `macos/install.sh` or `windows\install.ps1`).
 
 **From source.** Clone the repository and run the same inner installer from the checkout. `vpngo version` then reports `dev`.
 
@@ -375,7 +375,7 @@ tools/tag-release.sh 1.2.3
 The script checks that `main` is clean and matches `origin/main`, runs the tests and a local build, then creates and pushes the annotated tag `v1.2.3`. The tag starts the [Release workflow](.github/workflows/release.yml), which:
 
 1. runs the tests;
-2. builds the Linux, macOS and Windows archives in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`, the `.deb` and `.rpm` packages, the three download-and-install scripts and `SHA256SUMS`;
+2. builds the Linux and macOS `.tar.gz` and Windows `.zip` archives, the `.deb` and `.rpm` packages, the three download-and-install scripts and `SHA256SUMS`;
 3. installs and upgrades vpngo with each installer on Linux, macOS and Windows runners;
 4. installs the `.deb` on Ubuntu, the `.rpm` on Fedora and, for stable versions, builds and installs the `PKGBUILD` on Arch Linux;
 5. publishes the GitHub release with install instructions and generated notes. Versions with a suffix such as `-rc.1` are marked as pre-releases;
@@ -383,7 +383,7 @@ The script checks that `main` is clean and matches `origin/main`, runs the tests
 
 The package updates need two repository secrets: `AUR_SSH_PRIVATE_KEY` (an SSH key registered in the AUR account that owns `vpngo`) and `PACKAGES_TOKEN` (a GitHub token that can push to `homebrew-vpngo` and `scoop-vpngo`). Without them the release still publishes and the workflow notes which updates it skipped. The AUR package is not published yet, because AUR registration is temporarily closed; until then, Arch users install from the release's `PKGBUILD`.
 
-Running the workflow by hand from the Actions tab does steps 1–4 without publishing. To build locally (Python 3.14 or newer, for `.tar.zst`; add `--linux-packages` with [nfpm](https://nfpm.goreleaser.com) installed to include the `.deb` and `.rpm`):
+Running the workflow by hand from the Actions tab does steps 1–4 without publishing. To build locally (add `--linux-packages` with [nfpm](https://nfpm.goreleaser.com) installed to include the `.deb` and `.rpm`):
 
 ```sh
 python3 tools/build_release.py --version 1.2.3 --out dist

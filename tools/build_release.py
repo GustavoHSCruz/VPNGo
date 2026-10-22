@@ -7,11 +7,9 @@ the same bytes.
 """
 
 import argparse
-import bz2
 import gzip
 import hashlib
 import io
-import lzma
 import os
 import re
 import shutil
@@ -22,11 +20,6 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
-
-try:
-    from compression import zstd
-except ImportError:  # Python < 3.14
-    zstd = None
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,7 +34,8 @@ INSTALLERS = {
     "install-macos.sh": "macos",
     "install-windows.ps1": "windows",
 }
-FORMATS = ("tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "zip")
+# One archive per system, in the format its installer and package manager download.
+ARCHIVES = {"linux": "tar.gz", "macos": "tar.gz", "windows": "zip"}
 VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?")
 DEFAULT_REPOSITORY = "GustavoHSCruz/VPNGo"
 
@@ -120,23 +114,11 @@ def zip_bytes(items, epoch):
     return buffer.getvalue()
 
 
-def compress(tar, suffix, epoch):
-    if suffix == "tar":
-        return tar
-    if suffix == "tar.gz":
-        buffer = io.BytesIO()
-        with gzip.GzipFile(filename="", mode="wb", fileobj=buffer, mtime=epoch, compresslevel=9) as output:
-            output.write(tar)
-        return buffer.getvalue()
-    if suffix == "tar.bz2":
-        return bz2.compress(tar, 9)
-    if suffix == "tar.xz":
-        return lzma.compress(tar, format=lzma.FORMAT_XZ, preset=9)
-    if suffix == "tar.zst":
-        if zstd is None:
-            raise SystemExit("tar.zst needs Python 3.14 or newer (compression.zstd).")
-        return zstd.compress(tar, level=19)
-    raise ValueError(suffix)
+def gzip_bytes(tar, epoch):
+    buffer = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=buffer, mtime=epoch, compresslevel=9) as output:
+        output.write(tar)
+    return buffer.getvalue()
 
 
 def linux_packages(items, version, epoch):
@@ -201,9 +183,9 @@ def main():
     for system in SYSTEMS:
         top = f"vpngo-{args.version}-{system}"
         items = list(entries(select(files, system), args.version, top))
-        tar = tar_bytes(items, epoch)
-        for suffix in FORMATS:
-            assets[f"{top}.{suffix}"] = zip_bytes(items, epoch) if suffix == "zip" else compress(tar, suffix, epoch)
+        suffix = ARCHIVES[system]
+        assets[f"{top}.{suffix}"] = (zip_bytes(items, epoch) if suffix == "zip" else
+                                     gzip_bytes(tar_bytes(items, epoch), epoch))
         if system == "linux" and args.linux_packages:
             assets.update(linux_packages(items, args.version, epoch))
     for name in INSTALLERS:

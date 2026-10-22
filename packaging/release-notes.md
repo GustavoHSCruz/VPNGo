@@ -47,6 +47,6 @@ The installers download the archive for your system, check it against `SHA256SUM
 | `install-*.sh`, `install-windows.ps1` | Download-and-install scripts |
 | `SHA256SUMS` | SHA-256 checksum of every file above |
 
-Each archive comes in `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and `.zip`; the contents are identical. To check a manual download, run `sha256sum -c SHA256SUMS --ignore-missing` (Linux), `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS) or compare `Get-FileHash <file>` with its line in `SHA256SUMS` (Windows).
+Linux and macOS archives are `.tar.gz`; the Windows archive is `.zip`. To check a manual download, run `sha256sum -c SHA256SUMS --ignore-missing` (Linux), `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS) or compare `Get-FileHash <file>` with its line in `SHA256SUMS` (Windows).
 
 vpngo is licensed under the Apache License 2.0. Redistributions must keep the `LICENSE` and `NOTICE` files.
