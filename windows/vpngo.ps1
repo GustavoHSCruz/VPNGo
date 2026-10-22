@@ -59,6 +59,29 @@ function Sync-AppRouting([string]$Mode = 'Apply') {
     }
 }
 
+function Close-App([string]$Name) {
+    # Ask first, like SIGTERM on Linux and macOS: a forced kill can lose settings the app had
+    # not written yet (issue #2). Apps that only hide to the tray are forced after 6 seconds.
+    foreach ($Running in @(Get-Process -Name $Name -ErrorAction SilentlyContinue)) {
+        if ($Running.MainWindowHandle -ne 0) { [void]$Running.CloseMainWindow() }
+    }
+    $Deadline = (Get-Date).AddSeconds(6)
+    while ((Get-Process -Name $Name -ErrorAction SilentlyContinue) -and (Get-Date) -lt $Deadline) {
+        Start-Sleep -Milliseconds 200
+    }
+    Get-Process -Name $Name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+function Start-App($App) {
+    # Squirrel apps (Discord, Slack...) start through Update.exe, which runs the current version.
+    if ($App.start_with) {
+        $Arguments = @($App.start_with | Select-Object -Skip 1)
+        Start-Process -FilePath $App.start_with[0] -ArgumentList $Arguments
+    } else {
+        Start-Process -FilePath $App.launch
+    }
+}
+
 function Start-MihomoEngine([string]$Name) {
     if (Test-MihomoReady $Name) { return }
     $Mihomo = if ($env:VPNGO_MIHOMO) { $env:VPNGO_MIHOMO } else {
@@ -229,11 +252,11 @@ try {
             }
             $BlockFailed = $false
             try { Invoke-Control $Application 'block' | Out-Null } catch { $BlockFailed = $true }
-            Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Close-App $ProcessName
             foreach ($HelperPath in $App.helpers) {
                 $HelperName = [System.IO.Path]::GetFileNameWithoutExtension($HelperPath)
                 if ($HelperName -and $HelperName -notin $Protected) {
-                    Get-Process -Name $HelperName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                    Close-App $HelperName
                 }
             }
             if ($BlockFailed -or (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
@@ -266,10 +289,10 @@ try {
     Start-MihomoEngine $Application
     Sync-AppRouting
     Invoke-Control $Application 'on'
-    Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Stop-Process -Force
+    Close-App $ProcessName
     Invoke-Control $Application 'reconnect' | Out-Null
     Start-Sleep -Seconds 1
-    Start-Process -FilePath $App.launch
+    Start-App $App
     Write-Output "$Application started through the VPN using per-process TCP/UDP filters. Windows routes and system proxy were not changed."
 } catch {
     [Console]::Error.WriteLine("vpngo: $($_.Exception.Message)")

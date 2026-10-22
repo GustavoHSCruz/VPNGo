@@ -626,6 +626,31 @@ class LinuxCommandTest(unittest.TestCase):
             reconnect.assert_called_once_with("vg_app")
 
 
+class SquirrelAppTest(unittest.TestCase):
+    def test_windows_squirrel_apps_start_their_newest_version_through_update(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "Discord"
+            for version in ("1.0.9", "1.0.10"):
+                (root / f"app-{version}").mkdir(parents=True)
+                (root / f"app-{version}/Discord.exe").write_bytes(b"")
+            (root / "Update.exe").write_bytes(b"")
+            with patch.object(apps.os, "name", "nt"):
+                found = apps.describe(root / "app-1.0.9/Discord.exe")
+        # 1.0.10 is newer than 1.0.9, though it sorts first alphabetically.
+        self.assertEqual(Path(found["executable"]).parent.name, "app-1.0.10")
+        self.assertEqual(found["process"], "Discord.exe")
+        self.assertEqual(found["start_with"][1:], ["--processStart", "Discord.exe"])
+        self.assertEqual(Path(found["start_with"][0]).name, "Update.exe")
+
+    def test_other_programs_start_directly(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            program = Path(temporary) / "app-1.0/tool.exe"
+            program.parent.mkdir()
+            program.write_bytes(b"")
+            with patch.object(apps.os, "name", "nt"):
+                self.assertNotIn("start_with", apps.describe(program))  # No Update.exe beside it.
+
+
 class ProfileRegistryTest(unittest.TestCase):
     def setUp(self):
         # A stand-in for the OS key store, so the tests run anywhere (CI has no user systemd-creds).

@@ -90,6 +90,29 @@ def bundle_executable(bundle):
     return path.resolve()
 
 
+SQUIRREL_VERSION = re.compile(r"app-(\d+(?:\.\d+)*)", re.I)
+
+
+def squirrel(path):
+    """Squirrel-installed Windows apps (Discord, Slack...) keep each version in <root>/app-<version>/
+    and the previous one after an update. Returns (newest copy of this program, Update.exe), or None.
+
+    Starting an old copy would also load that version's native modules (Discord's voice and overlay
+    keep their own settings there), so vpngo always uses the newest and starts it through Update.exe,
+    as the app's own shortcut does.
+    """
+    match = SQUIRREL_VERSION.fullmatch(path.parent.name)
+    update = path.parent.parent / "Update.exe"
+    if not match or not update.is_file():
+        return None
+    versions = []
+    for folder in path.parent.parent.iterdir():
+        version = SQUIRREL_VERSION.fullmatch(folder.name)
+        if version and (folder / path.name).is_file():
+            versions.append((tuple(int(part) for part in version.group(1).split(".")), folder / path.name))
+    return max(versions)[1], update
+
+
 def describe(path):
     path = path.expanduser().resolve()
     if sys.platform == "darwin" and path.is_dir() and path.suffix.lower() == ".app":
@@ -98,6 +121,11 @@ def describe(path):
                 "process": executable.name, "bundle": str(path)}
     if not is_executable(path):
         raise AppError(f"Not an executable file: {path}")
+    installed = squirrel(path) if os.name == "nt" else None
+    if installed:
+        path, update = installed
+        return {"executable": str(path), "launch": str(path), "process": path.name,
+                "start_with": [str(update), "--processStart", path.name]}
     return {"executable": str(path), "launch": str(path), "process": path.name}
 
 
