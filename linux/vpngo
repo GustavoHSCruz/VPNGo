@@ -194,14 +194,21 @@ def record_route(namespace, state, previous_since=None):
     try:
         if not path.is_file():
             return
-        from state import veth_counters
+        from state import iso_epoch, veth_counters
         session = json.loads(path.read_text(encoding="utf-8"))
-        # Sessions started before v0.7.0 have no clock: the previous route began at the session file's time.
-        record = session.get("route") or route_clock.begin(
-            "direct" if state == "vpn" else "vpn", previous_since or path.stat().st_mtime)
+        record = session.get("route")
+        if not record:
+            # Sessions started before v0.7.0 have no clock. The app was on the VPN from its start
+            # (vopono's created_at) until it went direct, if it did.
+            created = next((iso_epoch(item.get("created_at")) for item in
+                            json.loads(run("vopono", "status", "--json").stdout).get("namespaces", [])
+                            if item.get("id") == namespace), None) or path.stat().st_mtime
+            record = route_clock.begin("direct" if state == "vpn" else "vpn", previous_since or created)
+            if state == "vpn" and previous_since:
+                record["vpn_seconds"] = max(0.0, previous_since - created)
         session["route"] = route_clock.switch(record, state, veth_counters().get(namespace))
         save_session(namespace, session)
-    except (OSError, ValueError):
+    except (OSError, ValueError, SwitchError):
         pass
 
 
