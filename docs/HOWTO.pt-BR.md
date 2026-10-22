@@ -350,6 +350,10 @@ vpngo switch firefox brasil
 - **Linux:** o vpngo mantém a rede isolada do aplicativo, troca o túnel de VPN e confere se o túnel novo responde antes de confirmar. Se a conferência falhar, restaura o túnel, os endereços, o MTU, o DNS e a rota anteriores. Num teste real com dois túneis, o mesmo aplicativo continuou rodando enquanto o endereço público mudou. Uma consulta DNS falhou durante a troca e a requisição seguinte se recuperou sem nenhuma ação.
 - **Windows e macOS:** o vpngo muda a escolha do Mihomo só para aquele aplicativo e fecha as conexões que o Mihomo atribui a ele.
 
+### Prefere clicar? Instale a janela
+
+`vpngo --install-gui` instala uma janela e um ícone na bandeja, opcionais, para esses mesmos comandos. Cada aplicativo é um bloco que acende em verde enquanto está na VPN; um interruptor alterna entre a VPN e a sua conexão normal, e o menu do bloco inicia, para ou troca o perfil. A janela também cadastra perfis e aplicativos. A primeira instalação baixa cerca de 250 MB (Qt). Quando uma ação precisa da sua senha, a própria janela pede. Rode o mesmo comando de novo para atualizar.
+
 ## 6. Opções avançadas
 
 ### Kill switch e isolamento de DNS no Linux

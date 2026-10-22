@@ -23,7 +23,8 @@ MESSAGES = {
                 "  vpngo policy <app> killswitch|dns on|off     Set routing policy\n"
                 "  vpngo helper add <app> <executable>          Route a helper process\n"
                 "  vpngo config <path>                          Register an app path\n"
-                "  vpngo version                                Show the version\n\n"
+                "  vpngo version                                Show the version\n"
+                "  vpngo --install-gui                          Install the graphical interface\n\n"
                 "  -d, --detach                                 Return to prompt while the app runs\n"
                 "  vpngo help <command>                         Explain a command and its options",
         "help_unknown": "Unknown help topic '{topic}'. Run 'vpngo help' to list commands.",
@@ -90,7 +91,8 @@ MESSAGES = {
                 "  vpngo policy <app> killswitch|dns on|off     Define a política de rota\n"
                 "  vpngo helper add <app> <executável>          Inclui um processo auxiliar\n"
                 "  vpngo config <caminho>                       Cadastra o caminho do app\n"
-                "  vpngo version                                Mostra a versão\n\n"
+                "  vpngo version                                Mostra a versão\n"
+                "  vpngo --install-gui                          Instala a interface gráfica\n\n"
                 "  -d, --detach                                 Libera o terminal; o app continua aberto\n"
                 "  vpngo help <comando>                         Explica um comando e suas opções",
         "help_unknown": "Ajuda desconhecida: '{topic}'. Execute 'vpngo help' para listar os comandos.",

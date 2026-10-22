@@ -97,6 +97,11 @@ try {
     if ($Application -in @('start','on','temp','temp-wait')) {
         Assert-AppOnlyRouting
     }
+    # PowerShell may bind a leading --flag to the remaining arguments instead of $Application.
+    if ($Application -eq '--install-gui' -or (-not $Application -and $RemainingArgs -contains '--install-gui')) {
+        & $Python (Join-Path $Project 'shared/commands.py') '--install-gui'
+        exit $LASTEXITCODE
+    }
     if (-not $Application) {
         & $Python (Join-Path $Project 'shared/commands.py')
         exit 2
@@ -174,7 +179,7 @@ try {
         }
         exit $ChildExitCode
     }
-    if ($Application -in @('profile','assign','start','stop','switch','status','on','off','policy','helper','version','help')) {
+    if ($Application -in @('profile','assign','start','stop','switch','status','on','off','policy','helper','version','help','--install-gui')) {
         $CliArgs = @($Application)
         if ($Action) { $CliArgs += $Action }
         if ($Profile) { $CliArgs += $Profile }

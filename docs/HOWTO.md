@@ -348,6 +348,10 @@ vpngo switch firefox brazil
 - **Linux:** vpngo keeps the app's isolated network, swaps the VPN tunnel and checks that the new tunnel answers before confirming. If the check fails, it restores the previous tunnel, addresses, MTU, DNS and route. In a real test with two tunnels, the same app kept running while its public address changed. One DNS lookup failed during the change and the next request recovered without any action.
 - **Windows and macOS:** vpngo changes Mihomo's choice for that app only and closes the connections Mihomo assigns to it.
 
+### Prefer clicking? Install the window
+
+`vpngo --install-gui` installs an optional window and tray icon for these same commands. Each app is a tile that lights up green while it is on the VPN; a switch moves it between the VPN and your normal connection, and its menu starts, stops or changes its profile. It also adds profiles and apps. The first install downloads about 250 MB (Qt). When an action needs your password, the window asks for it itself. Run the same command again to update it.
+
 ## 6. Advanced options
 
 ### Linux kill switch and DNS isolation

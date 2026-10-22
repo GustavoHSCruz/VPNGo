@@ -37,6 +37,7 @@ Every system starts with the same first step: [get your VPN file](docs/HOWTO.md#
   - [Profile requirements](#profile-requirements)
 - [Quick start](#quick-start)
 - [Commands](#commands)
+- [Graphical interface](#graphical-interface)
 - [Routing and isolation](#routing-and-isolation)
 - [Files, secrets and language](#files-secrets-and-language)
 - [Development](#development)
@@ -280,16 +281,28 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo stop <app>` | Close the app and end its managed VPN session. On macOS/Windows, block that app's selector while leaving Mihomo available to others. |
 | `vpngo switch <app> <profile>` | Change a running app's profile and save the new assignment after success. |
 | `vpngo status <app>` | Show the app's active route and saved settings. |
+| `vpngo status --json` | Print every profile and app with its route as JSON, without asking for a password. Used by the graphical interface. |
 | `vpngo off <app>` / `vpngo on <app>` | Intentionally select the direct route, or return to the assigned VPN. |
 | `vpngo policy <app> killswitch on\|off` | Set the Linux per-app fail-closed policy for the next start. Default: on. |
 | `vpngo policy <app> dns on\|off` | Set Linux resolver isolation for the next start. Default: off; needs the kill switch and a DNS IP in the profile. |
 | `vpngo helper add <app> <executable>` | Register a known helper executable for Mihomo process matching. |
 | `vpngo shutdown` | Windows: stop all VPNGo process filters and its local proxy; apps remain open and use their usual connection. |
 | `vpngo version` | Show the installed version (`dev` in a source checkout). |
+| `vpngo --install-gui` | Download, verify and install (or upgrade) the [graphical interface](#graphical-interface). |
 | `vpngo config <path>` | Register an executable, executable folder, or macOS `.app` bundle. |
 | `vpngo help <command>` | Show a command's syntax and options, for example `vpngo help start`. |
 
 The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app-first form still work. On Windows, run the commands in PowerShell.
+
+## Graphical interface
+
+[VPNGo interface](https://github.com/GustavoHSCruz/VPNGo-gui) is an optional tray app and window for the everyday commands: start, stop, VPN on/off, switching profiles, and adding profiles and apps. Each app is a tile lit by its route. It runs these same `vpngo` commands, so everything above still applies.
+
+```sh
+vpngo --install-gui
+```
+
+The command downloads the latest interface release, checks it against its `SHA256SUMS`, and installs it in its own Python environment (`~/.local/share/vpngo-gui`, or `%LOCALAPPDATA%\vpngo-gui` on Windows) with Qt (PySide6). The first install downloads about 250 MB unless PySide6 is already installed on the system. It creates the `vpngo-gui` command and, on Linux, an application menu entry. Run it again to upgrade. On Linux and macOS the interface asks for the sudo password in its own dialog when an action needs it; see its [README](https://github.com/GustavoHSCruz/VPNGo-gui#readme) for details and removal.
 
 ## Routing and isolation
 

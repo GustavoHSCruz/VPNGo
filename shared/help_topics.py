@@ -43,7 +43,12 @@ TOPICS = {
                     "Windows: stop VPNGo's process filters and local proxy for every managed app.\n"
                     "Applications remain open and return to their usual connection.",
         "status": "Usage: vpngo status <app>\n"
-                  "Show the current route and the settings saved for the next start.",
+                  "       vpngo status --json\n"
+                  "Show the current route and the settings saved for the next start.\n"
+                  "  --json  Every profile and app with its route, as JSON; never asks for a password.",
+        "--install-gui": "Usage: vpngo --install-gui\n"
+                         "Download, verify and install or upgrade the graphical interface (vpngo-gui).\n"
+                         "It goes in its own Python environment with Qt; the first install downloads about 250 MB.",
         "on": "Usage: vpngo on <app>\n"
               "Return a managed app to its VPN route. The app stays open.",
         "off": "Usage: vpngo off <app>\n"
@@ -113,7 +118,12 @@ TOPICS = {
         "stop": "Uso: vpngo stop <app>\n"
                 "Fecha o app e a sessão VPN. O perfil salvo permanece.",
         "status": "Uso: vpngo status <app>\n"
-                  "Mostra a rota atual e as opções salvas para o próximo start.",
+                  "     vpngo status --json\n"
+                  "Mostra a rota atual e as opções salvas para o próximo start.\n"
+                  "  --json  Todos os perfis e apps com a rota, em JSON; nunca pede senha.",
+        "--install-gui": "Uso: vpngo --install-gui\n"
+                         "Baixa, confere e instala ou atualiza a interface gráfica (vpngo-gui).\n"
+                         "Ela fica num ambiente Python próprio com Qt; a primeira instalação baixa cerca de 250 MB.",
         "on": "Uso: vpngo on <app>\n"
               "Recoloca um app gerenciado na rota VPN sem fechá-lo.",
         "off": "Uso: vpngo off <app>\n"

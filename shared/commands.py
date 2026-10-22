@@ -14,7 +14,8 @@ from profiles import load as load_profiles, profile_key, register, resolve
 
 
 PROJECT = Path(__file__).resolve().parent.parent
-GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper", "version"}
+GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper", "version",
+                   "--install-gui"}
 TEMP_FLAGS = {"--temp"}
 DETACH_FLAGS = {"-d", "--detach"}
 
@@ -58,7 +59,7 @@ def main(argv=None):
     if not args:
         return usage()
     command = args[0]
-    if sys.platform in {"darwin", "win32"} and command not in {"version", "help", "--help", "-h"}:
+    if sys.platform in {"darwin", "win32"} and command not in {"version", "help", "--help", "-h", "--install-gui"}:
         from managed import reconcile_temporary
         reconcile_temporary()
     if command in {"help", "--help", "-h"}:
@@ -74,6 +75,13 @@ def main(argv=None):
     if command == "version" and len(args) == 1:
         print(f"vpngo {version()}")
         return 0
+    if command == "status" and args[1:] == ["--json"]:
+        from state import snapshot
+        print(json.dumps(snapshot(version()), indent=2))
+        return 0
+    if command == "--install-gui" and len(args) == 1:
+        from gui_install import install
+        return install()
     if command == "profile":
         if len(args) == 2 and args[1] == "list":
             print("\n".join(sorted(load_profiles())) or "No VPN profiles configured.")
