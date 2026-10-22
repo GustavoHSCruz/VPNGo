@@ -45,7 +45,8 @@ TOPICS = {
         "status": "Usage: vpngo status <app>\n"
                   "       vpngo status --json\n"
                   "Show the current route and the settings saved for the next start.\n"
-                  "  --json  Every profile and app with its route, as JSON; never asks for a password.",
+                  "  --json  Every profile and app with its route, start time, VPN server and traffic\n"
+                  "          counters, as JSON; never asks for a password.",
         "--install-gui": "Usage: vpngo --install-gui\n"
                          "Download, verify and install or upgrade the graphical interface (vpngo-gui).\n"
                          "It goes in its own Python environment with Qt; the first install downloads about 250 MB.",
@@ -120,7 +121,8 @@ TOPICS = {
         "status": "Uso: vpngo status <app>\n"
                   "     vpngo status --json\n"
                   "Mostra a rota atual e as opções salvas para o próximo start.\n"
-                  "  --json  Todos os perfis e apps com a rota, em JSON; nunca pede senha.",
+                  "  --json  Todos os perfis e apps com rota, início, servidor da VPN e contadores\n"
+                  "          de tráfego, em JSON; nunca pede senha.",
         "--install-gui": "Uso: vpngo --install-gui\n"
                          "Baixa, confere e instala ou atualiza a interface gráfica (vpngo-gui).\n"
                          "Ela fica num ambiente Python próprio com Qt; a primeira instalação baixa cerca de 250 MB.",

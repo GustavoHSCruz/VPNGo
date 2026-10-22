@@ -281,7 +281,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo stop <app>` | Close the app and end its managed VPN session. On macOS/Windows, block that app's selector while leaving Mihomo available to others. |
 | `vpngo switch <app> <profile>` | Change a running app's profile and save the new assignment after success. |
 | `vpngo status <app>` | Show the app's active route and saved settings. |
-| `vpngo status --json` | Print every profile and app with its route as JSON, without asking for a password. Used by the graphical interface. |
+| `vpngo status --json` | Print every profile and app as JSON without asking for a password: route, start time, VPN server and byte counters of running apps. Used by the graphical interface. |
 | `vpngo off <app>` / `vpngo on <app>` | Intentionally select the direct route, or return to the assigned VPN. |
 | `vpngo policy <app> killswitch on\|off` | Set the Linux per-app fail-closed policy for the next start. Default: on. |
 | `vpngo policy <app> dns on\|off` | Set Linux resolver isolation for the next start. Default: off; needs the kill switch and a DNS IP in the profile. |
@@ -296,7 +296,7 @@ The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app
 
 ## Graphical interface
 
-[VPNGo interface](https://github.com/GustavoHSCruz/VPNGo-gui) is an optional tray app and window for the everyday commands: start, stop, VPN on/off, switching profiles, and adding profiles and apps. Each app is a tile lit by its route. It runs these same `vpngo` commands, so everything above still applies.
+[VPNGo interface](https://github.com/GustavoHSCruz/VPNGo-gui) is an optional tray app and window for the everyday commands: start, stop, VPN on/off, switching profiles, and adding profiles and apps. Each app is a tile lit by its route, with its running time, traffic and VPN server (masked until clicked). It runs these same `vpngo` commands, so everything above still applies.
 
 ```sh
 vpngo --install-gui

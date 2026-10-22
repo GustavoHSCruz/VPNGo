@@ -73,6 +73,33 @@ class StatusJsonTest(unittest.TestCase):
         self.assertEqual(by_name["steam"]["state"], "direct")
         self.assertEqual((by_name["spotify"]["state"], by_name["spotify"]["profile"]), ("stopped", "default"))
 
+    def test_linux_reports_start_time_endpoint_and_traffic(self):
+        namespace = self.namespace("vg_vesktop_us_1_2", "vesktop", "us")
+        namespace.update(created_at="2026-10-21T22:19:55Z", server={"hostname": "146.70.230.82:51820"})
+        with (self.vopono([namespace]), patch.object(state.sys, "platform", "linux"),
+              patch.object(state, "veth_counters", return_value={"vg_vesktop_us_1_2": {"rx_bytes": 900, "tx_bytes": 40}})):
+            app = next(app for app in state.snapshot("1.0.0")["apps"] if app["name"] == "vesktop")
+        self.assertEqual(app["started_at"], 1792621195.0)
+        self.assertEqual(app["endpoint"], "146.70.230.82:51820")
+        self.assertEqual((app["rx_bytes"], app["tx_bytes"]), (900, 40))
+
+    def test_veth_counters_read_the_host_side_of_each_namespace(self):
+        statistics = self.state_dir / "sys/vbf_d/statistics"
+        statistics.mkdir(parents=True)
+        (statistics / "tx_bytes").write_text("1500\n")   # host transmits = the app receives
+        (statistics / "rx_bytes").write_text("300\n")
+        outputs = {("netns", "list"): [{"name": "vg_a", "id": 5}],
+                   ("link", "show", "type", "veth"): [{"ifname": "vbf_d", "link_netnsid": 5},
+                                                      {"ifname": "veth0", "link_netnsid": 1}]}
+
+        def run(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, json.dumps(outputs[tuple(command[2:])]), "")
+        real_path = state.Path
+        with (patch.object(state.subprocess, "run", side_effect=run),
+              patch.object(state, "Path", side_effect=lambda value, *rest: real_path(
+                  str(value).replace("/sys/class/net", str(self.state_dir / "sys")), *rest))):
+            self.assertEqual(state.veth_counters(), {"vg_a": {"rx_bytes": 1500, "tx_bytes": 300}})
+
     def test_namespace_without_running_apps_is_stopped(self):
         namespace = self.namespace("vg_vesktop_us_1_2", "vesktop", "us")
         namespace["applications"] = []
@@ -89,13 +116,24 @@ class StatusJsonTest(unittest.TestCase):
         from generate_mihomo import group_name
         selected = {group_name("vesktop"): "vpngo-wireguard-us", group_name("steam"): "DIRECT",
                     group_name("spotify"): "REJECT"}
+        connections = {"connections": [
+            {"chains": [group_name("vesktop")], "download": 1000, "upload": 10},
+            {"chains": ["x"], "metadata": {"inboundName": group_name("vesktop") + "-in"}, "download": 5, "upload": 2},
+            {"chains": [group_name("steam")], "download": 7, "upload": 1}]}
+
+        def request(port, secret, method, path):
+            return connections if path == "/connections" else {"now": selected[path.split("/")[-1]]}
         import control
         with (patch("apps.mihomo_dir", return_value=mihomo),
-              patch.object(control, "request", side_effect=lambda p, s, m, path: {"now": selected[path.split("/")[-1]]}),
+              patch.object(control, "request", side_effect=request),
+              patch.object(state, "endpoint", return_value="1.2.3.4:51820"),
               patch.object(state.sys, "platform", "darwin")):
             data = state.snapshot("1.0.0")
-        by_name = {app["name"]: app["state"] for app in data["apps"]}
-        self.assertEqual(by_name, {"vesktop": "vpn", "steam": "direct", "spotify": "stopped"})
+        by_name = {app["name"]: app for app in data["apps"]}
+        self.assertEqual({name: app["state"] for name, app in by_name.items()},
+                         {"vesktop": "vpn", "steam": "direct", "spotify": "stopped"})
+        self.assertEqual((by_name["vesktop"]["rx_bytes"], by_name["vesktop"]["tx_bytes"]), (1005, 12))
+        self.assertEqual(by_name["vesktop"]["endpoint"], "1.2.3.4:51820")
 
     def test_command_prints_json(self):
         with (patch("state.snapshot", return_value={"schema": 1, "apps": []}),

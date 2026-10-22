@@ -210,7 +210,8 @@ def prepare(application, profile="default", temporary=False):
             raise AppError(f"'{application}' and '{other_name}' have conflicting executable paths.")
     previous = json.loads(json.dumps(data))
     data[name] = {**app, "profile": profile, "enabled": True, "blocked": False,
-                  "helpers": assignment.get("helpers", []), "dns": assignment.get("dns", False)}
+                  "helpers": assignment.get("helpers", []), "dns": assignment.get("dns", False),
+                  "started_at": time.time()}
     if sys.platform == "win32" and previous.get(name, {}).get("windows_port"):
         data[name]["windows_port"] = previous[name]["windows_port"]
     if temporary:
