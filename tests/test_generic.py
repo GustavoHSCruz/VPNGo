@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 TEST_HOME = Path(tempfile.mkdtemp(prefix="vpngo-test-home-"))
 atexit.register(shutil.rmtree, TEST_HOME, ignore_errors=True)
 os.environ.update(HOME=str(TEST_HOME), XDG_CONFIG_HOME=str(TEST_HOME / ".config"),
-                  APPDATA=str(TEST_HOME / "AppData"))
+                  APPDATA=str(TEST_HOME / "AppData"), LOCALAPPDATA=str(TEST_HOME / "LocalAppData"))
 
 import apps
 import control
@@ -85,6 +85,25 @@ class MihomoControllerTest(unittest.TestCase):
 
 
 class MihomoRouteTest(unittest.TestCase):
+    def setUp(self):
+        # These tests exercise selector transactions without an installed driver.
+        filters = patch("windows_backend.routing_active", return_value=True)
+        filters.start()
+        self.addCleanup(filters.stop)
+
+    def test_empty_connection_snapshots_have_no_connections(self):
+        for connections in (None, []):
+            with self.subTest(connections=connections):
+                with patch.object(control, "request", return_value={"connections": connections}):
+                    self.assertEqual(list(control.app_connections(9097, "secret", "alpha")), [])
+
+    def test_malformed_connection_snapshots_are_rejected(self):
+        for response in (None, {}, {"connections": {}}, {"connections": 0}):
+            with self.subTest(response=response):
+                with patch.object(control, "request", return_value=response):
+                    with self.assertRaises(ValueError):
+                        list(control.app_connections(9097, "secret", "alpha"))
+
     def test_temporary_route_is_removed_after_run(self):
         with tempfile.TemporaryDirectory() as temporary:
             app = {"executable": "/games/dota2", "launch": "/games/dota2", "process": "dota2"}
@@ -163,6 +182,7 @@ class MihomoRouteTest(unittest.TestCase):
             "secret", 9097,
             {"alpha": {"process": "alpha", "profile": "east", "enabled": True},
              "beta": {"process": "beta", "profile": "west", "enabled": True}},
+            platform="darwin",
         )
         try:
             import yaml
@@ -186,7 +206,7 @@ class MihomoRouteTest(unittest.TestCase):
             "alpha": {"process": "alpha", "enabled": True},
             "beta": {"process": "beta", "enabled": False},
         }
-        config = build_config(profile, "secret", 9097, managed)
+        config = build_config(profile, "secret", 9097, managed, platform="darwin")
         self.assertIn(f"PROCESS-NAME,alpha,{group_name('alpha')}", config)
         self.assertIn(f"PROCESS-NAME,beta,{group_name('beta')}", config)
         self.assertNotEqual(group_name("alpha"), group_name("beta"))
@@ -209,7 +229,7 @@ class MihomoRouteTest(unittest.TestCase):
         config = build_config(profile, "secret", 9097, {
             "alpha": {"process": "alpha", "profile": "default", "enabled": False, "blocked": True},
             "beta": {"process": "beta", "profile": "default", "enabled": True},
-        })
+        }, platform="darwin")
         self.assertIn(f"name: {group_name('alpha')}\n    type: select\n", config)
         self.assertIn("default-selected: REJECT", config)
         self.assertIn("default-selected: vpngo-wireguard", config)

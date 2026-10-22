@@ -1,7 +1,8 @@
 param(
     [Parameter(Position=0)][string]$Application,
     [Parameter(Position=1)][string]$Action,
-    [Parameter(Position=2)][string]$Profile
+    [Parameter(Position=2)][string]$Profile,
+    [Parameter(ValueFromRemainingArguments=$true)][string[]]$RemainingArgs
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,29 +21,121 @@ function Invoke-Control([string]$Name, [string]$Command) {
     Invoke-Python 'shared/control.py' @($Name, $Command)
 }
 
+function Test-MihomoReady([string]$Name) {
+    # Windows PowerShell can turn redirected native stderr into a terminating
+    # error with Stop. An unavailable controller is expected during startup.
+    $ErrorActionPreference = 'Continue'
+    & $Python (Join-Path $Project 'shared/windows_backend.py') probe $Name *> $null
+    return $LASTEXITCODE -eq 0
+}
+
+function Assert-AppOnlyRouting {
+    & (Join-Path $PSScriptRoot 'proxy-service.ps1') -Mode Check | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Per-application routing is unavailable. Install the Windows backend with windows\install-backend.ps1. No VPN was started.' }
+}
+
+function Sync-AppRouting([string]$Mode = 'Apply') {
+    $Helper = Join-Path $PSScriptRoot 'proxy-service.ps1'
+    $Desired = Join-Path $State 'proxifyre.json'
+    $Owner = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    if ($Mode -eq 'Apply') {
+        $Check = & $Helper -Mode Check -ConfigPath $Desired -OwnerSid $Owner | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0) { throw 'Could not validate the per-application routing backend.' }
+        if (-not $Check.needsApply) { return }
+    }
+    $ResultPath = Join-Path $State ('proxy-result-' + [Guid]::NewGuid().ToString('N') + '.json')
+    $Command = "& '" + $Helper.Replace("'", "''") + "' -Mode '$Mode' -ConfigPath '" +
+        $Desired.Replace("'", "''") + "' -OwnerSid '$Owner' -ResultPath '" + $ResultPath.Replace("'", "''") + "'; exit `$LASTEXITCODE"
+    $Encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
+    try {
+        $Operation = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') `
+            -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$Encoded) `
+            -Verb RunAs -WindowStyle Hidden -PassThru -Wait
+        if (-not (Test-Path -LiteralPath $ResultPath)) { throw 'Process-filter update did not finish. No application was launched.' }
+        $Result = Get-Content -LiteralPath $ResultPath -Raw | ConvertFrom-Json
+        if ($Operation.ExitCode -ne 0 -or $Result.error) { throw "Process-filter update failed: $($Result.error)" }
+    } finally {
+        if (Test-Path -LiteralPath $ResultPath) { Remove-Item -LiteralPath $ResultPath -Force }
+    }
+}
+
+function Start-MihomoEngine([string]$Name) {
+    if (Test-MihomoReady $Name) { return }
+    $Mihomo = if ($env:VPNGO_MIHOMO) { $env:VPNGO_MIHOMO } else {
+        (Get-Command mihomo.exe -ErrorAction Stop).Source
+    }
+    $Config = Join-Path $State 'config.yaml'
+    $Arguments = @('-d', ('"' + $State + '"'), '-f', ('"' + $Config + '"'))
+    $Validation = Start-Process -FilePath $Mihomo -ArgumentList (@('-t') + $Arguments) `
+        -WindowStyle Hidden -PassThru -Wait `
+        -RedirectStandardOutput (Join-Path $State 'config-check.log') `
+        -RedirectStandardError (Join-Path $State 'config-check-error.log')
+    if ($Validation.ExitCode -ne 0) { throw "Mihomo rejected the config. Check $State\config-check-error.log." }
+    # The Windows config has no TUN or global proxy. Mihomo needs no elevation.
+    $Engine = Start-Process -FilePath $Mihomo -ArgumentList $Arguments -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput (Join-Path $State 'mihomo.log') `
+        -RedirectStandardError (Join-Path $State 'mihomo-error.log')
+    try {
+        for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
+            Start-Sleep -Milliseconds 500
+            $Engine.Refresh()
+            if ($Engine.HasExited) { throw "Mihomo stopped. Check $State\mihomo-error.log." }
+            if (Test-MihomoReady $Name) {
+                @{ id = $Engine.Id; started = $Engine.StartTime.ToUniversalTime().Ticks } |
+                    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $State 'engine.json') -Encoding UTF8
+                return
+            }
+        }
+        throw "Mihomo did not become ready. Check $State\mihomo.log."
+    } catch {
+        if (-not $Engine.HasExited) { $Engine | Stop-Process -Force -ErrorAction SilentlyContinue }
+        throw
+    }
+}
+
 try {
+    if ($Application -in @('start','on','temp','temp-wait')) {
+        Assert-AppOnlyRouting
+    }
     if (-not $Application) {
         & $Python (Join-Path $Project 'shared/commands.py')
         exit 2
     }
+    if ($Application -eq 'shutdown') {
+        if ($Action -or $Profile -or $RemainingArgs) { throw 'Usage: vpngo shutdown' }
+        Assert-AppOnlyRouting
+        Sync-AppRouting 'Stop'
+        $EngineFile = Join-Path $State 'engine.json'
+        if (Test-Path -LiteralPath $EngineFile) {
+            $Record = Get-Content -LiteralPath $EngineFile -Raw | ConvertFrom-Json
+            $Engine = Get-Process -Id $Record.id -ErrorAction SilentlyContinue
+            if ($Engine -and $Engine.StartTime.ToUniversalTime().Ticks -eq $Record.started) {
+                $Engine | Stop-Process -Force
+            }
+            Remove-Item -LiteralPath $EngineFile -Force
+        }
+        Write-Output 'VPNGo process filters and its local proxy stopped. Applications now use their usual connection.'
+        exit 0
+    }
     if ($Application -eq 'temp-wait') {
-        if (-not $Action -or -not $Profile -or $args.Count -ne 1) { throw 'Invalid temporary worker arguments.' }
-        $Session = [string]$args[0]
+        if (-not $Action -or -not $Profile -or $RemainingArgs.Count -ne 1) { throw 'Invalid temporary worker arguments.' }
+        $Session = [string]$RemainingArgs[0]
         try {
             Invoke-Python 'shared/managed.py' @('temp-bind', $Action, $Session, [string]$PID) | Out-Null
             $Child = Start-Process -FilePath $Profile -Wait -PassThru
             $ChildExitCode = $Child.ExitCode
         } finally {
             Invoke-Python 'shared/managed.py' @('temp-cleanup', $Action, $Session) | Out-Null
+            Sync-AppRouting
         }
         exit $ChildExitCode
     }
     if ($Application -eq 'temp') {
-        if (-not $Action -or -not $Profile -or $args.Count -gt 1 -or
-            ($args.Count -eq 1 -and $args[0] -ne 'detach')) {
+        if (-not $Action -or -not $Profile -or $RemainingArgs.Count -gt 1 -or
+            ($RemainingArgs.Count -eq 1 -and $RemainingArgs[0] -ne 'detach')) {
             throw 'Usage: vpngo --temp <profile> <executable> [-d|--detach]'
         }
-        $Detached = $args.Count -eq 1
+        $Detached = $RemainingArgs.Count -eq 1
         $Resolved = Invoke-Python 'shared/managed.py' @('temp-resolve', $Profile) | ConvertFrom-Json
         $ProcessName = [System.IO.Path]::GetFileNameWithoutExtension($Resolved.process)
         if (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue) {
@@ -52,22 +145,8 @@ try {
         $App = $AppJson | ConvertFrom-Json
         $TempPrepared = $true
         try {
-            $Mihomo = if ($env:VPNGO_MIHOMO) { $env:VPNGO_MIHOMO } else {
-                (Get-Command mihomo.exe -ErrorAction Stop).Source
-            }
-            & $Python $Controller $App.process status *> $null
-            if ($LASTEXITCODE -ne 0) {
-                $Config = Join-Path $State 'config.yaml'
-                $Arguments = @('-d', ('"' + $State + '"'), '-f', ('"' + $Config + '"'))
-                Start-Process -FilePath $Mihomo -ArgumentList $Arguments -Verb RunAs | Out-Null
-                $Ready = $false
-                for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
-                    Start-Sleep -Seconds 1
-                    & $Python $Controller $App.process status *> $null
-                    if ($LASTEXITCODE -eq 0) { $Ready = $true; break }
-                }
-                if (-not $Ready) { throw "Mihomo did not start. Check its elevated window and $State\config.yaml." }
-            }
+            Start-MihomoEngine $App.process
+            Sync-AppRouting
             if ($Detached) {
                 $WorkerScript = $PSCommandPath.Replace("'", "''")
                 $WorkerProcess = $App.process.Replace("'", "''")
@@ -88,7 +167,10 @@ try {
             $Child = Start-Process -FilePath $App.launch -Wait -PassThru
             $ChildExitCode = $Child.ExitCode
         } finally {
-            if ($TempPrepared) { Invoke-Python 'shared/managed.py' @('temp-cleanup', $App.process, $App.session) | Out-Null }
+            if ($TempPrepared) {
+                Invoke-Python 'shared/managed.py' @('temp-cleanup', $App.process, $App.session) | Out-Null
+                Sync-AppRouting
+            }
         }
         exit $ChildExitCode
     }
@@ -96,7 +178,7 @@ try {
         $CliArgs = @($Application)
         if ($Action) { $CliArgs += $Action }
         if ($Profile) { $CliArgs += $Profile }
-        if ($args) { $CliArgs += $args }
+        if ($RemainingArgs) { $CliArgs += $RemainingArgs }
         & $Python (Join-Path $Project 'shared/commands.py') @CliArgs
         exit $LASTEXITCODE
     }
@@ -122,6 +204,9 @@ try {
     if (-not $Action) { $Action = 'start' }
     if ($Action -notin @('start','stop','on','off','status')) {
         throw 'Usage: vpngo <application> [start|stop|on|off|status]'
+    }
+    if ($Action -in @('start','on')) {
+        Assert-AppOnlyRouting
     }
     if ($Profile -and $Action -ne 'start') { throw 'A profile can only be supplied with start.' }
     if ($Action -ne 'start') {
@@ -151,11 +236,16 @@ try {
             }
             if ($App.temporary) {
                 Invoke-Python 'shared/managed.py' @('temp-cleanup', $App.process, $App.session) | Out-Null
+                Sync-AppRouting
                 Write-Output "$Application`: application closed; temporary Mihomo route removed."
             } else {
                 Write-Output "$Application`: application closed; its Mihomo route is blocked. Other applications stay connected."
             }
             exit 0
+        }
+        if ($Action -eq 'on') {
+            if (-not (Test-MihomoReady $Application)) { throw 'The local proxy is stopped. Run vpngo start <app> first.' }
+            Sync-AppRouting
         }
         Invoke-Control $Application $Action
         exit 0
@@ -168,29 +258,15 @@ try {
     if ($ProcessName -in @('python','python3','powershell','pwsh','cmd','conhost','explorer','svchost','system')) {
         throw "Refusing to close shared system process '$ProcessName' automatically."
     }
-    $Mihomo = if ($env:VPNGO_MIHOMO) { $env:VPNGO_MIHOMO } else {
-        (Get-Command mihomo.exe -ErrorAction Stop).Source
-    }
-    & $Python $Controller $Application status *> $null
-    if ($LASTEXITCODE -ne 0) {
-        $Config = Join-Path $State 'config.yaml'
-        $Arguments = @('-d', ('"' + $State + '"'), '-f', ('"' + $Config + '"'))
-        Start-Process -FilePath $Mihomo -ArgumentList $Arguments -Verb RunAs | Out-Null
-        $Ready = $false
-        for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
-            Start-Sleep -Seconds 1
-            & $Python $Controller $Application status *> $null
-            if ($LASTEXITCODE -eq 0) { $Ready = $true; break }
-        }
-        if (-not $Ready) { throw "Mihomo did not start. Check its elevated window and $State\config.yaml." }
-    }
+    Start-MihomoEngine $Application
+    Sync-AppRouting
     Invoke-Control $Application 'on'
     Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Stop-Process -Force
     Invoke-Control $Application 'reconnect' | Out-Null
     Start-Sleep -Seconds 1
     Start-Process -FilePath $App.launch
-    Write-Output "$Application started through the VPN."
+    Write-Output "$Application started through the VPN using per-process TCP/UDP filters. Windows routes and system proxy were not changed."
 } catch {
-    Write-Error $_
+    [Console]::Error.WriteLine("vpngo: $($_.Exception.Message)")
     exit 1
 }

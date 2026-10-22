@@ -135,7 +135,7 @@ def main(argv=None):
             return usage()
         if value == "on" and sys.platform in {"darwin", "win32"}:
             raise AppError(f"Strict per-app {policy} is unavailable on {sys.platform}; "
-                           "the Mihomo TUN backend cannot guarantee it.")
+                           "the routing backend cannot guarantee it.")
         if policy == "dns" and value == "on" and not get(application)["killswitch"]:
             raise AppError("Enable the kill switch before DNS isolation.")
         if policy == "killswitch" and value == "off" and get(application)["dns"]:

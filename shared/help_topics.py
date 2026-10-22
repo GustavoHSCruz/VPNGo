@@ -39,6 +39,9 @@ TOPICS = {
                   "The app must reconnect its own connections. Run 'on' first if it is off.",
         "stop": "Usage: vpngo stop <app>\n"
                 "Close the app and end its VPN session. The saved profile remains.",
+        "shutdown": "Usage: vpngo shutdown\n"
+                    "Windows: stop VPNGo's process filters and local proxy for every managed app.\n"
+                    "Applications remain open and return to their usual connection.",
         "status": "Usage: vpngo status <app>\n"
                   "Show the current route and the settings saved for the next start.",
         "on": "Usage: vpngo on <app>\n"
@@ -143,6 +146,9 @@ TOPICS = {
                  "Forma antiga de 'profile add'; sem perfil, usa 'default'.",
         "profiles": "Uso: vpngo profiles\n"
                     "Forma antiga de 'profile list'.",
+        "shutdown": "Uso: vpngo shutdown\n"
+                    "Windows: encerra os filtros por processo e o proxy local de todos os apps.\n"
+                    "Os aplicativos continuam abertos e voltam para a conexao normal.",
     },
 }
 

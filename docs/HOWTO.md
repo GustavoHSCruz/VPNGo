@@ -150,9 +150,11 @@ Open [api.ipify.org](https://api.ipify.org) in Firefox and in another browser. T
 
 ## 3. Windows
 
-**How it works on Windows:** vpngo uses [Mihomo](https://github.com/MetaCubeX/mihomo), a free routing program. Mihomo creates one virtual network adapter and sends only the programs you choose through the VPN. Windows asks for permission (the "Do you want to allow this app to make changes to your device?" window) when Mihomo starts, because creating that adapter needs administrator rights.
+**How it works on Windows:** VPNGo uses ProxiFyre 2.6.4+ and Windows Packet Filter to redirect only the chosen executable names and registered helpers into local Mihomo SOCKS listeners. TCP and UDP are supported. The Windows backend does not create a TUN, change the default route, enable a system proxy or hijack system DNS.
 
-Two limits to know: there is no kill switch, so if Mihomo stops, the apps go back to your normal connection. And an app that starts separate helper programs may need [extra setup](#helper-programs-windows-and-macos).
+**Additional setup is required:** after installing vpngo, explicitly run `powershell -ExecutionPolicy Bypass -File .\windows\install-backend.ps1` from the checkout (or run that script from the installed vpngo folder). It downloads a pinned, SHA-256-verified ProxiFyre installer and requests administrator permission to install ProxiFyre, Windows Packet Filter and runtime dependencies. This installs a network driver; it is separate from the normal launcher install. Do not configure ProxiFyre manually: VPNGo generates the process allowlist. See [Windows details and checks](WINDOWS.md).
+
+`vpngo shutdown` stops all VPNGo process filters and its local proxy. There is no strict per-app kill switch or isolated DNS; helper traffic and process attribution remain best effort.
 
 > **Already use [Scoop](https://scoop.sh)?** `scoop bucket add vpngo https://github.com/GustavoHSCruz/scoop-vpngo` and then `scoop install vpngo` install vpngo, Python and Mihomo; skip to [step 3](#step-3-register-your-vpn-file-1).
 
@@ -178,8 +180,7 @@ Expand-Archive "$env:TEMP\mihomo.zip" "$env:TEMP\mihomo" -Force
 Move-Item "$env:TEMP\mihomo\mihomo-windows-$arch.exe" "$HOME\bin\mihomo.exe" -Force
 ```
 
-Mihomo already includes the Windows virtual adapter driver (Wintun); nothing else is needed. vpngo was checked against Mihomo v1.19.32. If you keep `mihomo.exe` somewhere else, set the `VPNGO_MIHOMO` variable to its full path.
-
+If you keep `mihomo.exe` elsewhere, set `VPNGO_MIHOMO` to its full path. App routing also requires ProxiFyre and Windows Packet Filter as described above.
 ### Step 2: Download and install vpngo
 
 ```powershell
@@ -363,7 +364,9 @@ DNS isolation (`dns on`) needs `bubblewrap`, the kill switch, and an IP address 
 
 On Windows and macOS, `policy ... killswitch on` and `policy ... dns on` are refused: Mihomo cannot guarantee them per app. If Mihomo stops, fails to identify a process, or a helper program has no rule, traffic can go through your normal connection.
 
-Mihomo currently uses `1.1.1.1` and `9.9.9.9` as global DNS resolvers. These queries are not tied to the selected WireGuard profile. Its final rule is `MATCH,DIRECT`, so connections without a matching process rule use the normal network. Process-name rules can also match another instance of the same executable. Do not treat the process selector as DNS isolation or a per-app kill switch. Mihomo runs with administrator privileges to create the TUN adapter; use a trusted binary and keep its configuration and controller secret private.
+**Windows:** the new backend uses explicit ProxiFyre process rules and authenticated loopback SOCKS listeners. It has no TUN or global route changes. Windows system DNS stays unchanged. See [Windows backend setup and validation](WINDOWS.md).
+
+**macOS:** Mihomo currently uses `1.1.1.1` and `9.9.9.9` as global DNS resolvers. These queries are not tied to the selected WireGuard profile. Its final rule is `MATCH,DIRECT`, so connections without a matching process rule use the normal network. Process-name rules can also match another instance of the same executable. Do not treat the process selector as DNS isolation or a per-app kill switch. Mihomo runs with administrator privileges to create the TUN adapter; use a trusted binary and keep its configuration and controller secret private.
 
 ### Helper programs (Windows and macOS)
 

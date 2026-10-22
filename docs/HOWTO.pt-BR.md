@@ -150,9 +150,11 @@ Abra [api.ipify.org](https://api.ipify.org) no Firefox e em outro navegador. Os 
 
 ## 3. Windows
 
-**Como funciona no Windows:** o vpngo usa o [Mihomo](https://github.com/MetaCubeX/mihomo), um programa gratuito de roteamento. O Mihomo cria um adaptador de rede virtual e manda pela VPN só os programas que você escolher. O Windows pede permissão (a janela "Deseja permitir que este aplicativo faça alterações no seu dispositivo?") quando o Mihomo inicia, porque criar esse adaptador exige permissão de administrador.
+**Como funciona no Windows:** o VPNGo usa ProxiFyre 2.6.4+ e Windows Packet Filter para encaminhar apenas os executáveis escolhidos e seus auxiliares cadastrados até proxies SOCKS locais do Mihomo, com suporte a TCP e UDP. O backend não cria TUN, não troca a rota padrão, não ativa proxy do sistema nem intercepta o DNS do Windows.
 
-Dois limites para saber: não existe kill switch, então se o Mihomo parar, os aplicativos voltam para a sua conexão normal. E um aplicativo que abre programas auxiliares separados pode precisar de [configuração extra](#programas-auxiliares-windows-e-macos).
+**É necessária uma instalação adicional:** depois de instalar o vpngo, execute explicitamente `powershell -ExecutionPolicy Bypass -File .\windows\install-backend.ps1` no checkout (ou execute esse script na pasta instalada do vpngo). O script baixa uma versão fixa do instalador do ProxiFyre, confere o SHA-256 e pede permissão de administrador para instalar ProxiFyre, Windows Packet Filter e dependências. Isso instala um driver de rede e é separado da instalação normal do launcher. Não configure o ProxiFyre manualmente: o VPNGo gera a lista de processos. Veja [detalhes e verificações do Windows](WINDOWS.md).
+
+`vpngo shutdown` encerra todos os filtros por processo do VPNGo e seu proxy local. Ainda não há garantia estrita de kill switch ou DNS isolado; auxiliares e atribuição de processos têm limitações.
 
 > **Já usa o [Scoop](https://scoop.sh)?** `scoop bucket add vpngo https://github.com/GustavoHSCruz/scoop-vpngo` e depois `scoop install vpngo` instalam o vpngo, o Python e o Mihomo; pule para o [passo 3](#passo-3-cadastre-seu-arquivo-de-vpn-1).
 
@@ -178,7 +180,7 @@ Expand-Archive "$env:TEMP\mihomo.zip" "$env:TEMP\mihomo" -Force
 Move-Item "$env:TEMP\mihomo\mihomo-windows-$arch.exe" "$HOME\bin\mihomo.exe" -Force
 ```
 
-O Mihomo já traz o driver do adaptador virtual do Windows (Wintun); não precisa de mais nada. O vpngo foi conferido com o Mihomo v1.19.32. Se você guardar o `mihomo.exe` em outro lugar, defina a variável `VPNGO_MIHOMO` com o caminho completo dele.
+Se você guardar o `mihomo.exe` em outro lugar, defina `VPNGO_MIHOMO` com o caminho completo dele. O encaminhamento por aplicativo exige também o ProxiFyre e o Windows Packet Filter descritos acima.
 
 ### Passo 2: Baixe e instale o vpngo
 
@@ -364,7 +366,9 @@ O isolamento de DNS (`dns on`) precisa do `bubblewrap`, do kill switch e de um I
 
 No Windows e no macOS, `policy ... killswitch on` e `policy ... dns on` são recusados: o Mihomo não consegue garantir isso por aplicativo. Se o Mihomo parar, não identificar um processo ou um programa auxiliar ficar sem regra, o tráfego pode sair pela sua conexão normal.
 
-O Mihomo usa atualmente `1.1.1.1` e `9.9.9.9` como resolvedores DNS globais. Essas consultas não estão vinculadas ao perfil WireGuard escolhido. A última regra é `MATCH,DIRECT`: conexões sem correspondência por processo seguem pela rede normal. Regras por nome também podem abranger outra instância do mesmo executável. O seletor de processos não oferece isolamento de DNS nem kill switch por aplicativo. O Mihomo roda com privilégios de administrador para criar o adaptador TUN; use um binário confiável e mantenha privados a configuração e o segredo do controlador.
+**Windows:** o novo backend usa regras explícitas de processos do ProxiFyre e proxies SOCKS locais autenticados. Não há TUN nem mudança das rotas globais. O DNS do Windows continua como estava. Veja [instalação e validação do backend Windows](WINDOWS.md).
+
+**macOS:** o Mihomo usa atualmente `1.1.1.1` e `9.9.9.9` como resolvedores DNS globais. Essas consultas não estão vinculadas ao perfil WireGuard escolhido. A última regra é `MATCH,DIRECT`: conexões sem correspondência por processo seguem pela rede normal. Regras por nome também podem abranger outra instância do mesmo executável. O seletor de processos não oferece isolamento de DNS nem kill switch por aplicativo. O Mihomo roda com privilégios de administrador para criar o adaptador TUN; use um binário confiável e mantenha privados a configuração e o segredo do controlador.
 
 ### Programas auxiliares (Windows e macOS)
 

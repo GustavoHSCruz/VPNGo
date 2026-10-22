@@ -20,15 +20,25 @@ sys.path.insert(0, str(ROOT / "shared"))
 TEST_HOME = Path(tempfile.mkdtemp(prefix="vpngo-test-home-"))
 atexit.register(shutil.rmtree, TEST_HOME, ignore_errors=True)
 os.environ.update(HOME=str(TEST_HOME), XDG_CONFIG_HOME=str(TEST_HOME / ".config"),
-                  APPDATA=str(TEST_HOME / "AppData"))
+                  APPDATA=str(TEST_HOME / "AppData"), LOCALAPPDATA=str(TEST_HOME / "LocalAppData"))
 
 import apps
 import assignments
 import commands
 import profiles
+import managed
 
 
 class UnifiedCommandTest(unittest.TestCase):
+    def setUp(self):
+        # Most cases below describe the Linux CLI. Windows has an explicit case.
+        platform = patch.object(commands.sys, "platform", "linux")
+        platform.start()
+        self.addCleanup(platform.stop)
+        reconcile = patch.object(managed, "reconcile_temporary", return_value=[])
+        reconcile.start()
+        self.addCleanup(reconcile.stop)
+
     def test_temporary_run_uses_profile_without_saving_assignment(self):
         with (patch.object(commands, "resolve"),
               patch.object(commands, "backend", return_value=0) as backend,
@@ -100,7 +110,7 @@ class UnifiedCommandTest(unittest.TestCase):
         public = base64.b64encode(b"b" * 32).decode()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            executable = root / "example-app"
+            executable = root / "example-app.exe"
             executable.write_text("#!/bin/sh\nexit 0\n")
             executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
             wireguard = root / "east.conf"
