@@ -168,6 +168,43 @@ def mihomo_routes():
     return routes
 
 
+def running_processes():
+    """Lower-case names of this user's running programs, in one call; empty when it cannot tell.
+
+    Linux names are cut to 15 characters, as the kernel keeps them.
+    """
+    try:
+        if sys.platform == "win32":
+            output = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=10,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False).stdout
+            return {Path(line.split('","')[0].strip('"')).stem.casefold() for line in output.splitlines() if line}
+        import os
+        output = subprocess.run(["ps", "-u", str(os.getuid()), "-o", "comm="], capture_output=True, text=True,
+                                timeout=10, check=False).stdout
+        return {Path(line.strip()).name.casefold() for line in output.splitlines() if line.strip()}
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+
+
+def opened_outside(name, processes, registered=None):
+    """True when a stopped app's program is running anyway: someone opened it without vpngo.
+
+    On Windows only a registered path is used: searching Program Files on every refresh is too slow.
+    """
+    from apps import describe, find
+    try:
+        if registered:
+            process = Path(describe(Path(registered))["process"])
+        elif sys.platform == "win32":
+            return False
+        else:
+            process = Path(find(name)["process"])
+    except (AppError, OSError, KeyError):
+        return False
+    wanted = (process.stem if sys.platform == "win32" else process.name).casefold()
+    return wanted in processes or wanted[:15] in processes
+
+
 def endpoint(profile):
     try:
         from profiles import parsed as parsed_profile
@@ -188,9 +225,15 @@ def snapshot(version):
     default_killswitch = sys.platform.startswith("linux")
     apps = []
     grouped = {app for entry in groups.values() for app in entry["apps"]}
+    processes = None
     for name in sorted(set(saved) | set(registered) | set(routes) | grouped):
         item = saved.get(name, {})
         route = routes.get(name, {})
+        # Who opened it: vpngo for a routed app; "outside" when its program runs without a route.
+        origin = "vpngo" if route else None
+        if not route:
+            processes = running_processes() if processes is None else processes
+            origin = "outside" if opened_outside(name, processes, registered.get(name)) else None
         apps.append({
             "name": name,
             "profile": item.get("profile", "default"),
@@ -208,6 +251,7 @@ def snapshot(version):
             "route_tx_bytes": route.get("route_tx_bytes"),
             # Only paths already known: searching for an app here would slow every refresh.
             "executable": route.get("executable") or registered.get(name),
+            "origin": origin,
             "group": next((group for group, entry in groups.items() if name in entry["apps"]), None),
             "killswitch": item.get("killswitch", default_killswitch),
             "dns": item.get("dns", False),

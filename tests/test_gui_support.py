@@ -100,6 +100,16 @@ class StatusJsonTest(unittest.TestCase):
         self.assertEqual((app["group"], app["executable"]), ("chat", "/usr/bin/vesktop"))
         self.assertEqual(data["groups"], [{"name": "chat", "apps": ["vesktop"]}])
 
+    def test_an_app_opened_without_vpngo_is_reported_as_outside(self):
+        namespace = self.namespace("vg_vesktop_us_1_2", "vesktop", "us")
+        with (self.vopono([namespace]), patch.object(state.sys, "platform", "linux"),
+              patch.object(state, "running_processes", return_value={"vesktop", "spotify", "bash"}),
+              patch("apps.describe", return_value={"process": "spotify"}),
+              patch("apps.find", return_value={"process": "steam"})):
+            apps = {app["name"]: app for app in state.snapshot("1.0.0")["apps"]}
+        self.assertEqual((apps["vesktop"]["origin"], apps["spotify"]["origin"], apps["steam"]["origin"]),
+                         ("vpngo", "outside", None))
+
     def test_sessions_without_a_clock_use_the_switch_time(self):
         namespace = self.namespace("vg_vesktop_us_1_2", "vesktop", "us", direct=True)
         os.utime(self.state_dir / "vg_vesktop_us_1_2.resolv.conf", (2000, 2000))
