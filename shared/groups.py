@@ -93,6 +93,18 @@ def remove(group, applications=()):
     save(data)
 
 
+def rename(group, new_name):
+    """Give a group a new name; its apps and their order stay."""
+    old, new = group_key(group), group_key(new_name)
+    data = load()
+    if old not in data:
+        raise AppError(f"Group '{old}' was not found.")
+    if new != old and new in data:
+        raise AppError(f"Group '{new}' already exists.")
+    save({new if name == old else name: item for name, item in data.items()})
+    return new
+
+
 def forget(application):
     """Drop an app from every group (when the app itself is removed)."""
     data = load()

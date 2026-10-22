@@ -296,6 +296,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo group on\|off\|stop <group>` | Act on every app in the group: `on` starts the stopped ones and returns direct ones to the VPN, `off` moves the ones on the VPN to the direct route, `stop` closes them all. One password; a failing app does not stop the others. |
 | `vpngo group switch <group> <profile>` | Switch the group's apps on the VPN to the profile now; the others use it on their next start. |
 | `vpngo group list` / `vpngo group remove <group> [app...]` | List groups; take apps out of a group, or delete the group (its apps stay). |
+| `vpngo group rename <group> <new-name>` | Rename a group; its apps stay in it. |
 | `vpngo help <command>` | Show a command's syntax and options, for example `vpngo help start`. |
 
 The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app-first form still work. On Windows, run the commands in PowerShell.

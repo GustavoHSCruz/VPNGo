@@ -79,6 +79,10 @@ def group_command(args):
             print(f"{application} moved from group '{other}'.")
         print(f"Group '{group_key(args[1])}': {', '.join(members(args[1]))}.")
         return 0
+    if len(args) == 3 and args[0] == "rename":
+        from groups import rename
+        print(f"Group '{group_key(args[1])}' is now '{rename(args[1], args[2])}'.")
+        return 0
     if len(args) >= 2 and args[0] == "remove":
         remove(args[1], args[2:])
         print(f"Removed {', '.join(args[2:])} from group '{group_key(args[1])}'." if args[2:]

@@ -81,6 +81,12 @@ class GroupCommandTest(unittest.TestCase):
         with quiet():
             commands.main(["group", "remove", "chat", "vesktop"])
         self.assertEqual(groups.load(), {"games": {"apps": ["steam"]}})
+        with quiet():
+            commands.main(["group", "add", "chat", "vesktop"])
+            commands.main(["group", "rename", "games", "Play"])
+        self.assertEqual(list(groups.load()), ["play", "chat"])
+        with self.assertRaisesRegex(AppError, "already exists"):
+            commands.main(["group", "rename", "play", "chat"])
 
     def test_group_on_starts_stopped_apps_and_turns_direct_ones_on(self):
         groups.save({"games": {"apps": ["steam", "vesktop", "spotify"]}})
