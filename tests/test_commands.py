@@ -27,6 +27,7 @@ import assignments
 import commands
 import profiles
 import managed
+import vault
 
 
 class UnifiedCommandTest(unittest.TestCase):
@@ -38,6 +39,12 @@ class UnifiedCommandTest(unittest.TestCase):
         reconcile = patch.object(managed, "reconcile_temporary", return_value=[])
         reconcile.start()
         self.addCleanup(reconcile.stop)
+        # A stand-in for the OS key store: CI runners have neither user systemd-creds nor a keyring.
+        for patcher in (patch.object(vault, "backend", return_value="dpapi"),
+                        patch.object(vault, "dpapi", side_effect=lambda data, protect: bytes(
+                            byte ^ 0x5A for byte in data))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_temporary_run_uses_profile_without_saving_assignment(self):
         with (patch.object(commands, "resolve"),
