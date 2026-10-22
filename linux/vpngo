@@ -254,7 +254,7 @@ def app_pids(process_name):
     name = Path(process_name).name
     if name.casefold() in {"python", "python3", "sh", "bash", "zsh", "sudo", "vopono", "systemd", "init"}:
         raise SwitchError(tr("unsafe_process", app=name))
-    expression = re.escape(name[:15]) + r"(?: Helper.*)?"
+    expression = re.escape(name[:15]) + r"( Helper.*)?"
     result = run("pgrep", "-i", "-u", str(os.getuid()), "-x", expression, check=False)
     protected = {os.getpid(), os.getppid()}
     return [int(line) for line in result.stdout.splitlines()
