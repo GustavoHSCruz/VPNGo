@@ -348,9 +348,23 @@ vpngo switch firefox brazil
 - **Linux:** vpngo keeps the app's isolated network, swaps the VPN tunnel and checks that the new tunnel answers before confirming. If the check fails, it restores the previous tunnel, addresses, MTU, DNS and route. In a real test with two tunnels, the same app kept running while its public address changed. One DNS lookup failed during the change and the next request recovered without any action.
 - **Windows and macOS:** vpngo changes Mihomo's choice for that app only and closes the connections Mihomo assigns to it.
 
+### Groups: several apps at once
+
+Put apps that go together in a group, then turn them all on or off with one command and one password:
+
+```sh
+vpngo group add games steam discord
+vpngo group on games        # starts the stopped ones, returns direct ones to the VPN
+vpngo group off games       # moves the ones on the VPN to your normal connection
+vpngo group switch games brazil
+vpngo group stop games
+```
+
+An app belongs to one group at most. `vpngo group remove games` deletes the group and leaves its apps as they were. To forget a stopped app altogether, run `vpngo app remove <app>`; to forget a profile no app uses, `vpngo profile remove <profile>`.
+
 ### Prefer clicking? Install the window
 
-`vpngo --install-gui` installs an optional window and tray icon for these same commands. Each app is a tile that lights up green while it is on the VPN; a switch moves it between the VPN and your normal connection, and its menu starts, stops or changes its profile. It also adds profiles and apps. The first install downloads about 250 MB (Qt). When an action needs your password, the window asks for it itself. Run the same command again to update it.
+`vpngo --install-gui` installs an optional window and tray icon for these same commands. Each app is a tile that lights up green while it is on the VPN; a switch moves it between the VPN and your normal connection, and its menu starts, stops, changes its profile or group, and sets its protection. Groups appear as headings with one switch for all their apps. It also adds and removes profiles and apps. The first install downloads about 250 MB (Qt). When an action needs your password, the window asks for it itself. Run the same command again to update it.
 
 ## 6. Advanced options
 

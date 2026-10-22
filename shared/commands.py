@@ -15,7 +15,7 @@ from profiles import load as load_profiles, profile_key, register, resolve
 
 PROJECT = Path(__file__).resolve().parent.parent
 GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper", "version",
-                   "--install-gui"}
+                   "--install-gui", "group", "app"}
 TEMP_FLAGS = {"--temp"}
 DETACH_FLAGS = {"-d", "--detach"}
 
@@ -46,6 +46,110 @@ def configure_profile(path, profile):
         return subprocess.run([sys.executable, str(PROJECT / "shared/managed.py"), "reload"], check=False).returncode
     source = register(path, profile)
     print(f"VPN profile '{profile}' registered from {source}.")
+    return 0
+
+
+def running_routes():
+    """Route of every running app, keyed by app name; never asks for a password."""
+    from state import linux_routes, mihomo_routes
+    return linux_routes() if sys.platform.startswith("linux") else mihomo_routes()
+
+
+def group_step(action, application, state, profile=None):
+    """The command that brings one member to the group action, or None when it is already there."""
+    if action == "on":
+        return None if state == "vpn" else ["start", application] if state == "stopped" else ["on", application]
+    if action == "off":
+        return ["off", application] if state in {"vpn", "partial"} else None
+    if action == "stop":
+        return None if state == "stopped" else ["stop", application]
+    # A running app on the VPN switches live; the others keep the profile for their next start.
+    return ["switch", application, profile] if state == "vpn" else ["assign", application, profile]
+
+
+def group_command(args):
+    from groups import add, group_key, load as load_groups, members, remove
+    if args == ["list"]:
+        data = load_groups()
+        print("\n".join(f"{name}: {', '.join(item['apps'])}" for name, item in sorted(data.items()))
+              or "No groups. Create one with: vpngo group add <group> <app>...")
+        return 0
+    if len(args) >= 3 and args[0] == "add":
+        for application, other in add(args[1], args[2:]).items():
+            print(f"{application} moved from group '{other}'.")
+        print(f"Group '{group_key(args[1])}': {', '.join(members(args[1]))}.")
+        return 0
+    if len(args) >= 2 and args[0] == "remove":
+        remove(args[1], args[2:])
+        print(f"Removed {', '.join(args[2:])} from group '{group_key(args[1])}'." if args[2:]
+              else f"Group '{group_key(args[1])}' removed; its apps were not changed.")
+        return 0
+    if not (len(args) == 2 and args[0] in {"on", "off", "stop"} or len(args) == 3 and args[0] == "switch"):
+        return usage()
+    action, name = args[0], group_key(args[1])
+    profile = profile_key(args[2]) if action == "switch" else None
+    if profile:
+        resolve(profile)
+    routes = running_routes()
+    failed = []
+    for application in members(name):
+        step = group_step(action, application, routes.get(application, {}).get("state", "stopped"), profile)
+        if step is None:
+            print(f"{application}: already {'stopped' if action == 'stop' else 'on the VPN' if action == 'on' else 'off the VPN'}.")
+            continue
+        try:
+            code = main(step)
+        except (AppError, OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+            print(f"vpngo: {application}: {error}", file=sys.stderr)
+            code = 1
+        if code:
+            failed.append(application)
+    if failed:
+        print(f"vpngo: group '{name}' did not finish for: {', '.join(failed)}.", file=sys.stderr)
+        return 1
+    return 0
+
+
+def remove_app(application):
+    import groups
+    from apps import forget
+    from assignments import forget as forget_assignment
+    name = key(application)
+    if name in running_routes():
+        raise AppError(f"{name} is running. Stop it first with: vpngo stop {name}")
+    removed = [forget(name), forget_assignment(name)]
+    groups.forget(name)
+    if sys.platform in {"darwin", "win32"}:
+        from managed import load_managed, reload_runtime, save_managed
+        data = load_managed()
+        if data.pop(name, None) is not None:
+            save_managed(data)
+            removed.append(True)
+            reload_runtime()
+    if not any(removed):
+        raise AppError(f"'{name}' is not registered.")
+    print(f"{name} removed from vpngo. The program itself was not changed.")
+    return 0
+
+
+def remove_profile(profile):
+    from profiles import unregister
+    name = profile_key(profile)
+    if name not in load_profiles():
+        raise AppError(f"VPN profile '{name}' was not found.")
+    users = {application for application, item in load().items() if item.get("profile", "default") == name}
+    users |= {application for application, route in running_routes().items() if route.get("active_profile") == name}
+    if sys.platform in {"darwin", "win32"}:
+        from managed import load_managed
+        users |= {application for application, item in load_managed().items() if item.get("profile") == name}
+    if users:
+        raise AppError(f"Profile '{name}' is used by {', '.join(sorted(users))}. "
+                       "Give them another profile (or remove them) first.")
+    unregister(name)
+    if sys.platform in {"darwin", "win32"}:
+        subprocess.run([sys.executable, str(PROJECT / "shared/managed.py"), "reload"], check=False,
+                       stdout=subprocess.DEVNULL)
+    print(f"VPN profile '{name}' removed. Its .conf file was not changed.")
     return 0
 
 
@@ -88,7 +192,13 @@ def main(argv=None):
             return 0
         if len(args) == 4 and args[1] == "add":
             return configure_profile(args[3], args[2])
+        if len(args) == 3 and args[1] == "remove":
+            return remove_profile(args[2])
         return usage()
+    if command == "group":
+        return group_command(args[1:])
+    if command == "app" and len(args) == 3 and args[1] == "remove":
+        return remove_app(args[2])
     if command == "assign" and len(args) == 3:
         item = assign(args[1], args[2])
         print(f"{args[1]} assigned to profile '{item['profile']}'.")

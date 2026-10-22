@@ -16,6 +16,25 @@ TOPICS = {
                        "  <wireguard.conf>  Existing WireGuard config; its path is saved.",
         "profile list": "Usage: vpngo profile list\n"
                         "List registered VPN profile names.",
+        "profile remove": "Usage: vpngo profile remove <name>\n"
+                          "Forget a profile. Its .conf file is not changed. Refused while an app uses it.",
+        "app": "Usage: vpngo app remove <app>\n"
+               "Forget a stopped app: its registered path, saved profile, policies and group.\n"
+               "The program itself is not changed.",
+        "app remove": "Usage: vpngo app remove <app>\n"
+                      "Forget a stopped app: its registered path, saved profile, policies and group.\n"
+                      "The program itself is not changed.",
+        "group": "Usage: vpngo group add <group> <app>...\n"
+                 "       vpngo group on|off|stop <group>\n"
+                 "       vpngo group switch <group> <profile>\n"
+                 "       vpngo group list\n"
+                 "       vpngo group remove <group> [app...]\n"
+                 "Act on a set of apps at once. An app belongs to one group; adding it elsewhere moves it.\n"
+                 "  on      Start stopped apps and return direct ones to the VPN.\n"
+                 "  off     Move the apps on the VPN to the direct route.\n"
+                 "  stop    Close every app in the group.\n"
+                 "  switch  Running apps on the VPN switch now; the others use the profile on their next start.\n"
+                 "  remove  Without apps, delete the group; the apps themselves stay.",
         "assign": "Usage: vpngo assign <app> <profile>\n"
                   "Save the profile for future starts; does not launch the app.\n"
                   "  <app>      App name or registered executable.\n"
@@ -45,8 +64,8 @@ TOPICS = {
         "status": "Usage: vpngo status <app>\n"
                   "       vpngo status --json\n"
                   "Show the current route and the settings saved for the next start.\n"
-                  "  --json  Every profile and app with its route, start time, VPN server and traffic\n"
-                  "          counters, as JSON; never asks for a password.",
+                  "  --json  Every profile, group and app with its route, start time, time on each route,\n"
+                  "          VPN server and traffic counters, as JSON; never asks for a password.",
         "--install-gui": "Usage: vpngo --install-gui\n"
                          "Download, verify and install or upgrade the graphical interface (vpngo-gui).\n"
                          "It goes in its own Python environment with Qt; the first install downloads about 250 MB.",
@@ -95,6 +114,25 @@ TOPICS = {
                        "  <wireguard.conf>  Configuração existente; o caminho é salvo.",
         "profile list": "Uso: vpngo profile list\n"
                         "Lista os nomes dos perfis VPN cadastrados.",
+        "profile remove": "Uso: vpngo profile remove <nome>\n"
+                          "Esquece um perfil. O arquivo .conf não muda. Recusado enquanto algum app o usa.",
+        "app": "Uso: vpngo app remove <app>\n"
+               "Esquece um app parado: caminho cadastrado, perfil salvo, políticas e grupo.\n"
+               "O programa em si não muda.",
+        "app remove": "Uso: vpngo app remove <app>\n"
+                      "Esquece um app parado: caminho cadastrado, perfil salvo, políticas e grupo.\n"
+                      "O programa em si não muda.",
+        "group": "Uso: vpngo group add <grupo> <app>...\n"
+                 "     vpngo group on|off|stop <grupo>\n"
+                 "     vpngo group switch <grupo> <perfil>\n"
+                 "     vpngo group list\n"
+                 "     vpngo group remove <grupo> [app...]\n"
+                 "Age sobre vários apps de uma vez. Um app fica em um grupo só; adicioná-lo a outro o move.\n"
+                 "  on      Abre os apps parados e volta os diretos para a VPN.\n"
+                 "  off     Passa os apps que estão na VPN para a rota direta.\n"
+                 "  stop    Fecha todos os apps do grupo.\n"
+                 "  switch  Os apps na VPN trocam agora; os outros usam o perfil no próximo start.\n"
+                 "  remove  Sem apps, apaga o grupo; os apps continuam cadastrados.",
         "assign": "Uso: vpngo assign <app> <perfil>\n"
                   "Salva o perfil para os próximos starts; não abre o app.\n"
                   "  <app>     Nome do app ou executável cadastrado.\n"
@@ -121,8 +159,8 @@ TOPICS = {
         "status": "Uso: vpngo status <app>\n"
                   "     vpngo status --json\n"
                   "Mostra a rota atual e as opções salvas para o próximo start.\n"
-                  "  --json  Todos os perfis e apps com rota, início, servidor da VPN e contadores\n"
-                  "          de tráfego, em JSON; nunca pede senha.",
+                  "  --json  Todos os perfis, grupos e apps com rota, início, tempo em cada rota,\n"
+                  "          servidor da VPN e contadores de tráfego, em JSON; nunca pede senha.",
         "--install-gui": "Uso: vpngo --install-gui\n"
                          "Baixa, confere e instala ou atualiza a interface gráfica (vpngo-gui).\n"
                          "Ela fica num ambiente Python próprio com Qt; a primeira instalação baixa cerca de 250 MB.",

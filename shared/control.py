@@ -14,6 +14,7 @@ from generate_mihomo import STATE, group_name, profile_proxy
 from i18n import tr
 from managed import load_managed, save_managed
 from profiles import profile_key, resolve
+import route_clock
 
 
 CONTROLLER = STATE / "controller.json"
@@ -157,6 +158,11 @@ def main():
             managed[app_key]["enabled"] = target != "DIRECT"
             managed[app_key]["blocked"] = False
             managed[app_key]["profile"] = assigned_profile
+            item = managed[app_key]
+            # Entries from before v0.7.0 have no clock: the old route began when the app started.
+            record = item.get("route") or route_clock.begin(
+                "direct" if current["now"] == "DIRECT" else "vpn", item.get("started_at") or item.get("created_at"))
+            item["route"] = route_clock.switch(record, "direct" if target == "DIRECT" else "vpn")
             save_managed(managed)
     except Exception:
         if selector_changed:

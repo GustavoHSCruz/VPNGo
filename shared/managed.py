@@ -14,6 +14,7 @@ from apps import AppError, find, find_temporary, key
 from assignments import get as assignment_for
 from generate_mihomo import STATE, build_config, controller, group_name, private_write, profile_proxy
 from profiles import parsed_profiles, profile_key, resolve
+import route_clock
 
 
 MANAGED = STATE / "managed.json"
@@ -211,7 +212,7 @@ def prepare(application, profile="default", temporary=False):
     previous = json.loads(json.dumps(data))
     data[name] = {**app, "profile": profile, "enabled": True, "blocked": False,
                   "helpers": assignment.get("helpers", []), "dns": assignment.get("dns", False),
-                  "started_at": time.time()}
+                  "started_at": time.time(), "route": route_clock.begin("vpn")}
     if sys.platform == "win32" and previous.get(name, {}).get("windows_port"):
         data[name]["windows_port"] = previous[name]["windows_port"]
     if temporary:

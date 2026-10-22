@@ -62,6 +62,15 @@ def save(data):
     temporary.replace(REGISTRY)
 
 
+def forget(name):
+    """Unregister an app's path; True when there was one. The program itself is untouched."""
+    data = load()
+    if data["files"].pop(key(name), None) is None:
+        return False
+    save(data)
+    return True
+
+
 def is_executable(path):
     return path.is_file() and (os.name == "nt" and path.suffix.lower() == ".exe" or
                                os.name != "nt" and os.access(path, os.X_OK))

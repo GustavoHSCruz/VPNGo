@@ -98,3 +98,12 @@ def add_helper(application, path):
     data[key(application)] = {**current, "helpers": helpers}
     save(data)
     return data[key(application)]
+
+
+def forget(application):
+    """Drop an app's saved profile and policies; True when there were any."""
+    data = load()
+    if data.pop(key(application), None) is None:
+        return False
+    save(data)
+    return True

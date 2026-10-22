@@ -275,13 +275,14 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | --- | --- |
 | `vpngo profile add <name> <file.conf>` | Register or update a named WireGuard profile. |
 | `vpngo profile list` | List registered profiles. |
+| `vpngo profile remove <name>` | Forget a profile (its `.conf` file stays). Refused while an app uses it. |
 | `vpngo assign <app> <profile>` | Save the profile used by future `start` commands. |
 | `vpngo start <app> [profile]` | Close and launch the app on its saved or specified profile. |
 | `vpngo --temp <profile> <executable> [-d\|--detach]` | Run an executable once on the profile without saving an assignment. Add `-d` to close the original terminal. `vpngo start <executable> <profile> --temp` is equivalent. |
 | `vpngo stop <app>` | Close the app and end its managed VPN session. On macOS/Windows, block that app's selector while leaving Mihomo available to others. |
 | `vpngo switch <app> <profile>` | Change a running app's profile and save the new assignment after success. |
 | `vpngo status <app>` | Show the app's active route and saved settings. |
-| `vpngo status --json` | Print every profile and app as JSON without asking for a password: route, start time, VPN server and byte counters of running apps. Used by the graphical interface. |
+| `vpngo status --json` | Print every profile, group and app as JSON without asking for a password: route, start time, when the current route began and the time on each route, VPN server, and byte counters of running apps (in total and since the last switch). Used by the graphical interface. |
 | `vpngo off <app>` / `vpngo on <app>` | Intentionally select the direct route, or return to the assigned VPN. |
 | `vpngo policy <app> killswitch on\|off` | Set the Linux per-app fail-closed policy for the next start. Default: on. |
 | `vpngo policy <app> dns on\|off` | Set Linux resolver isolation for the next start. Default: off; needs the kill switch and a DNS IP in the profile. |
@@ -290,13 +291,18 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo version` | Show the installed version (`dev` in a source checkout). |
 | `vpngo --install-gui` | Download, verify and install (or upgrade) the [graphical interface](#graphical-interface). |
 | `vpngo config <path>` | Register an executable, executable folder, or macOS `.app` bundle. |
+| `vpngo app remove <app>` | Forget a stopped app: its registered path, saved profile, policies and group. The program itself is not changed. |
+| `vpngo group add <group> <app>...` | Put apps in a group (created on first use). An app is in one group at most; adding it to another moves it. |
+| `vpngo group on\|off\|stop <group>` | Act on every app in the group: `on` starts the stopped ones and returns direct ones to the VPN, `off` moves the ones on the VPN to the direct route, `stop` closes them all. One password; a failing app does not stop the others. |
+| `vpngo group switch <group> <profile>` | Switch the group's apps on the VPN to the profile now; the others use it on their next start. |
+| `vpngo group list` / `vpngo group remove <group> [app...]` | List groups; take apps out of a group, or delete the group (its apps stay). |
 | `vpngo help <command>` | Show a command's syntax and options, for example `vpngo help start`. |
 
 The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app-first form still work. On Windows, run the commands in PowerShell.
 
 ## Graphical interface
 
-[VPNGo interface](https://github.com/GustavoHSCruz/VPNGo-gui) is an optional tray app and window for the everyday commands: start, stop, VPN on/off, switching profiles, and adding profiles and apps. Each app is a tile lit by its route, with its running time, traffic and VPN server (masked until clicked). It runs these same `vpngo` commands, so everything above still applies.
+[VPNGo interface](https://github.com/GustavoHSCruz/VPNGo-gui) is an optional tray app and window for the everyday commands: start, stop, VPN on/off, switching profiles, groups, protection settings, and adding or removing profiles and apps. Each app is a tile lit by its route, with the time on its current route, a traffic trace colored by route, and its address masked until clicked (the VPN server, or the public IP on the direct route). It runs these same `vpngo` commands, so everything above still applies.
 
 ```sh
 vpngo --install-gui

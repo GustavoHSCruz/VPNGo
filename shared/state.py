@@ -5,9 +5,11 @@ session files and the host side of each namespace's veth on Linux, the local
 Mihomo controller on macOS and Windows. It never asks for a password, so a
 front end can refresh it as often as it likes.
 
-Per running app it reports when the session started, the VPN server endpoint,
-and cumulative byte counters (rx = received by the app, tx = sent by it); a
-front end turns the counters into rates by sampling them over time.
+Per running app it reports when the session started, when its current route
+began and the time spent on each route, the VPN server endpoint, and byte
+counters (rx = received by the app, tx = sent by it) in total and since the
+current route began; a front end turns the counters into rates by sampling
+them over time.
 """
 
 import json
@@ -22,6 +24,7 @@ from pathlib import Path
 from apps import AppError, key, load as load_apps
 from assignments import load as load_assignments
 from profiles import load as load_profiles
+import route_clock
 
 
 LINUX_STATE = Path.home() / ".local/state/vpngo"
@@ -86,12 +89,29 @@ def linux_routes():
         except (OSError, ValueError, AppError):
             continue
         # turn_off keeps the namespace resolver backup until turn_on restores it.
-        direct = (LINUX_STATE / f"{identifier}.resolv.conf").exists()
+        backup = LINUX_STATE / f"{identifier}.resolv.conf"
+        direct = backup.exists()
+        started_at = iso_epoch(namespace.get("created_at"))
+        record = session.get("route")
+        unknown_base = False
+        if not isinstance(record, dict) or record.get("state") != ("direct" if direct else "vpn"):
+            # Sessions from before v0.7.0: the route began at the switch (the backup's time) or at the start.
+            try:
+                since = backup.stat().st_mtime if direct else started_at
+            except OSError:
+                since = started_at
+            record = route_clock.begin("direct" if direct else "vpn", since)
+            if direct and since and started_at:
+                record["vpn_seconds"] = max(0.0, since - started_at)  # Best estimate: on the VPN until then.
+            # The counters at that switch were never recorded, so traffic "since the switch" is unknown.
+            unknown_base = direct
         routes[name] = {"state": "direct" if direct else "vpn",
                         "active_profile": session.get("profile"),
-                        "started_at": iso_epoch(namespace.get("created_at")),
+                        "started_at": started_at,
                         "endpoint": (namespace.get("server") or {}).get("hostname"),
-                        **counters.get(identifier, {})}
+                        "executable": session.get("executable"),
+                        **counters.get(identifier, {}),
+                        **route_clock.view(record, None if unknown_base else counters.get(identifier))}
     return routes
 
 
@@ -132,13 +152,19 @@ def mihomo_routes():
         mine = [connection for connection in connections
                 if group in (connection.get("chains") or []) or
                 (connection.get("metadata") or {}).get("inboundName") == group + "-in"]
+        started_at = item.get("started_at") or item.get("created_at")
+        # Totals of the open connections; they drop when connections close, and a switch closes them all.
+        counters = {"rx_bytes": sum(int(connection.get("download") or 0) for connection in mine),
+                    "tx_bytes": sum(int(connection.get("upload") or 0) for connection in mine)}
+        record = item.get("route") if isinstance(item.get("route"), dict) else None
+        if state_name in route_clock.ROUTES and (not record or record.get("state") != state_name):
+            record = route_clock.begin(state_name, started_at)
         routes[name] = {"state": state_name, "active_profile": profile,
                         "temporary": bool(item.get("temporary")),
-                        "started_at": item.get("started_at") or item.get("created_at"),
+                        "started_at": started_at,
                         "endpoint": endpoint(profile),
-                        # Totals of the open connections; they drop when connections close.
-                        "rx_bytes": sum(int(connection.get("download") or 0) for connection in mine),
-                        "tx_bytes": sum(int(connection.get("upload") or 0) for connection in mine)}
+                        "executable": item.get("launch") or item.get("executable"),
+                        **counters, **route_clock.view(record, counters)}
     return routes
 
 
@@ -154,13 +180,16 @@ def endpoint(profile):
 
 
 def snapshot(version):
+    from groups import load as load_groups
     profiles = sorted(load_profiles())
     saved = load_assignments()
     registered = load_apps()["files"]
+    groups = load_groups()
     routes = linux_routes() if sys.platform.startswith("linux") else mihomo_routes()
     default_killswitch = sys.platform.startswith("linux")
     apps = []
-    for name in sorted(set(saved) | set(registered) | set(routes)):
+    grouped = {app for entry in groups.values() for app in entry["apps"]}
+    for name in sorted(set(saved) | set(registered) | set(routes) | grouped):
         item = saved.get(name, {})
         route = routes.get(name, {})
         apps.append({
@@ -173,8 +202,17 @@ def snapshot(version):
             "endpoint": route.get("endpoint"),
             "rx_bytes": route.get("rx_bytes"),
             "tx_bytes": route.get("tx_bytes"),
+            "route_since": route.get("route_since"),
+            "vpn_seconds": route.get("vpn_seconds"),
+            "direct_seconds": route.get("direct_seconds"),
+            "route_rx_bytes": route.get("route_rx_bytes"),
+            "route_tx_bytes": route.get("route_tx_bytes"),
+            # Only paths already known: searching for an app here would slow every refresh.
+            "executable": route.get("executable") or registered.get(name),
+            "group": next((group for group, entry in groups.items() if name in entry["apps"]), None),
             "killswitch": item.get("killswitch", default_killswitch),
             "dns": item.get("dns", False),
         })
     return {"schema": 1, "version": version, "platform": sys.platform,
-            "profiles": profiles, "apps": apps}
+            "profiles": profiles, "apps": apps,
+            "groups": [{"name": group, "apps": entry["apps"]} for group, entry in sorted(groups.items())]}

@@ -83,6 +83,31 @@ class StatusJsonTest(unittest.TestCase):
         self.assertEqual(app["endpoint"], "146.70.230.82:51820")
         self.assertEqual((app["rx_bytes"], app["tx_bytes"]), (900, 40))
 
+    def test_route_clock_and_groups_in_the_snapshot(self):
+        namespace = self.namespace("vg_vesktop_us_1_2", "vesktop", "us", direct=True)
+        session = self.state_dir / "vg_vesktop_us_1_2.json"
+        session.write_text(json.dumps({"app": "vesktop", "profile": "us", "executable": "/usr/bin/vesktop", "route": {
+            "state": "direct", "since": 1000.0, "vpn_seconds": 50.0, "direct_seconds": 0.0,
+            "rx_base": 100, "tx_base": 10}}))
+        with (self.vopono([namespace]), patch.object(state.sys, "platform", "linux"),
+              patch.object(state.route_clock.time, "time", return_value=1030.0),
+              patch("groups.load", return_value={"chat": {"apps": ["vesktop"]}}),
+              patch.object(state, "veth_counters", return_value={"vg_vesktop_us_1_2": {"rx_bytes": 400, "tx_bytes": 30}})):
+            data = state.snapshot("1.0.0")
+        app = next(app for app in data["apps"] if app["name"] == "vesktop")
+        self.assertEqual((app["route_since"], app["vpn_seconds"], app["direct_seconds"]), (1000.0, 50, 30))
+        self.assertEqual((app["route_rx_bytes"], app["route_tx_bytes"]), (300, 20))
+        self.assertEqual((app["group"], app["executable"]), ("chat", "/usr/bin/vesktop"))
+        self.assertEqual(data["groups"], [{"name": "chat", "apps": ["vesktop"]}])
+
+    def test_sessions_without_a_clock_use_the_switch_time(self):
+        namespace = self.namespace("vg_vesktop_us_1_2", "vesktop", "us", direct=True)
+        os.utime(self.state_dir / "vg_vesktop_us_1_2.resolv.conf", (2000, 2000))
+        with self.vopono([namespace]), patch.object(state.sys, "platform", "linux"):
+            app = next(app for app in state.snapshot("1.0.0")["apps"] if app["name"] == "vesktop")
+        self.assertEqual(app["route_since"], 2000)
+        self.assertNotIn("route_rx_bytes", {key for key, value in app.items() if value is not None})
+
     def test_veth_counters_read_the_host_side_of_each_namespace(self):
         statistics = self.state_dir / "sys/vbf_d/statistics"
         statistics.mkdir(parents=True)

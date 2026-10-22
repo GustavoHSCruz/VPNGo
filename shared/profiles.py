@@ -59,6 +59,17 @@ def register(path, name="default"):
     return source
 
 
+def unregister(name):
+    """Forget a profile; its .conf file stays where it is."""
+    name = profile_key(name)
+    data = load()
+    if name not in data:
+        raise AppError(f"VPN profile '{name}' was not found.")
+    del data[name]
+    save(data)
+    return name
+
+
 def resolve(name="default"):
     name = profile_key(name)
     data = load()

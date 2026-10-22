@@ -350,9 +350,23 @@ vpngo switch firefox brasil
 - **Linux:** o vpngo mantém a rede isolada do aplicativo, troca o túnel de VPN e confere se o túnel novo responde antes de confirmar. Se a conferência falhar, restaura o túnel, os endereços, o MTU, o DNS e a rota anteriores. Num teste real com dois túneis, o mesmo aplicativo continuou rodando enquanto o endereço público mudou. Uma consulta DNS falhou durante a troca e a requisição seguinte se recuperou sem nenhuma ação.
 - **Windows e macOS:** o vpngo muda a escolha do Mihomo só para aquele aplicativo e fecha as conexões que o Mihomo atribui a ele.
 
+### Grupos: vários aplicativos de uma vez
+
+Junte num grupo os aplicativos que andam juntos e ligue ou desligue todos com um comando e uma senha só:
+
+```sh
+vpngo group add jogos steam discord
+vpngo group on jogos        # abre os parados e volta os diretos para a VPN
+vpngo group off jogos       # passa os que estão na VPN para a sua conexão normal
+vpngo group switch jogos brasil
+vpngo group stop jogos
+```
+
+Um aplicativo fica em um grupo só. `vpngo group remove jogos` apaga o grupo e deixa os aplicativos como estavam. Para esquecer de vez um aplicativo parado, use `vpngo app remove <app>`; para esquecer um perfil que nenhum aplicativo usa, `vpngo profile remove <perfil>`.
+
 ### Prefere clicar? Instale a janela
 
-`vpngo --install-gui` instala uma janela e um ícone na bandeja, opcionais, para esses mesmos comandos. Cada aplicativo é um bloco que acende em verde enquanto está na VPN; um interruptor alterna entre a VPN e a sua conexão normal, e o menu do bloco inicia, para ou troca o perfil. A janela também cadastra perfis e aplicativos. A primeira instalação baixa cerca de 250 MB (Qt). Quando uma ação precisa da sua senha, a própria janela pede. Rode o mesmo comando de novo para atualizar.
+`vpngo --install-gui` instala uma janela e um ícone na bandeja, opcionais, para esses mesmos comandos. Cada aplicativo é um bloco que acende em verde enquanto está na VPN; um interruptor alterna entre a VPN e a sua conexão normal, e o menu do bloco inicia, para, troca o perfil ou o grupo e ajusta a proteção. Os grupos aparecem como títulos com um interruptor para todos os aplicativos deles. A janela também cadastra e remove perfis e aplicativos. A primeira instalação baixa cerca de 250 MB (Qt). Quando uma ação precisa da sua senha, a própria janela pede. Rode o mesmo comando de novo para atualizar.
 
 ## 6. Opções avançadas
 
