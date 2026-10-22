@@ -302,7 +302,7 @@ The legacy commands `vpngo setup <file> [profile]`, `vpngo profiles` and the app
 vpngo --install-gui
 ```
 
-The command downloads the latest interface release, checks it against its `SHA256SUMS`, and installs it in its own Python environment (`~/.local/share/vpngo-gui`, or `%LOCALAPPDATA%\vpngo-gui` on Windows) with Qt (PySide6). The first install downloads about 250 MB unless PySide6 is already installed on the system. It creates the `vpngo-gui` command and, on Linux, an application menu entry. Run it again to upgrade. On Linux and macOS the interface asks for the sudo password in its own dialog when an action needs it; see its [README](https://github.com/GustavoHSCruz/VPNGo-gui#readme) for details and removal.
+The command downloads the latest interface release, checks it against its `SHA256SUMS`, and installs it in its own Python environment (`~/.local/share/vpngo-gui`, or `%LOCALAPPDATA%\vpngo-gui` on Windows) with Qt (PySide6). The first install downloads about 250 MB unless PySide6 is already installed on the system. It creates the `vpngo-gui` command and, on Linux, an application menu entry. Run it again to upgrade. To use only the interface, without installing vpngo first, run the interface's own `install.py` instead: it uses a vpngo it finds on `PATH`, or downloads this release as its private engine. On Linux and macOS the interface asks for the sudo password in its own dialog when an action needs it; see its [README](https://github.com/GustavoHSCruz/VPNGo-gui#readme) for details and removal.
 
 ## Routing and isolation
 
