@@ -289,6 +289,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo helper add <app> <executable>` | Register a known helper executable for Mihomo process matching. |
 | `vpngo shutdown` | Windows: stop all VPNGo process filters and its local proxy; apps remain open and use their usual connection. |
 | `vpngo version` | Show the installed version (`dev` in a source checkout). |
+| `vpngo update [--check]` | Install the latest release over this one: it downloads the release's installer for your system, checks it against `SHA256SUMS` and runs it; settings and profiles are kept, and a failed update restores the previous version. `--check` only reports whether a newer version exists. Installs from a package manager update with that manager; a source checkout with `git pull`. |
 | `vpngo --install-gui` | Download, verify and install (or upgrade) the [graphical interface](#graphical-interface). |
 | `vpngo config <path>` | Register an executable, executable folder, or macOS `.app` bundle. |
 | `vpngo app remove <app>` | Forget a stopped app: its registered path, saved profile, policies and group. The program itself is not changed. |

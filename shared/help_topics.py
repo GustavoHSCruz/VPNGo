@@ -97,6 +97,11 @@ TOPICS = {
         "config": "Usage: vpngo config <path>\n"
                   "Register an executable, a folder of executables, or a macOS .app bundle.\n"
                   "Use this when the app cannot be found automatically.",
+        "update": "Usage: vpngo update [--check]\n"
+                  "Download the latest release from GitHub, check it against SHA256SUMS and install it in place.\n"
+                  "Profiles and settings are kept; a failed update restores the previous version.\n"
+                  "  --check  Only say whether a newer version exists.\n"
+                  "Package manager installs update with their own command; a source checkout with git pull.",
         "version": "Usage: vpngo version\n"
                    "Show the installed version (or 'dev' from a source checkout).",
         "setup": "Usage: vpngo setup <wireguard.conf> [profile]\n"
@@ -194,6 +199,11 @@ TOPICS = {
         "config": "Uso: vpngo config <caminho>\n"
                   "Cadastra um executável, uma pasta de executáveis ou um pacote .app do macOS.\n"
                   "Use quando o app não for encontrado automaticamente.",
+        "update": "Uso: vpngo update [--check]\n"
+                  "Baixa a versão mais recente do GitHub, confere com o SHA256SUMS e instala por cima.\n"
+                  "Perfis e configurações ficam; se a atualização falhar, a versão anterior volta.\n"
+                  "  --check  Só diz se há uma versão mais nova.\n"
+                  "Instalações por gerenciador de pacotes atualizam pelo próprio gerenciador; o código-fonte, com git pull.",
         "version": "Uso: vpngo version\n"
                    "Mostra a versão instalada (ou 'dev' no código-fonte).",
         "setup": "Uso: vpngo setup <wireguard.conf> [perfil]\n"

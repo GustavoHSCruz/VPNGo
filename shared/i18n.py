@@ -31,6 +31,7 @@ MESSAGES = {
                 "  vpngo group list | remove <group> [app...]   List groups, or remove one or its apps\n"
                 "  vpngo group rename <group> <new-name>        Rename a group\n"
                 "  vpngo version                                Show the version\n"
+                "  vpngo update [--check]                       Install the latest release\n"
                 "  vpngo --install-gui                          Install the graphical interface\n\n"
                 "  -d, --detach                                 Return to prompt while the app runs\n"
                 "  vpngo help <command>                         Explain a command and its options",
@@ -107,6 +108,7 @@ MESSAGES = {
                 "  vpngo group list | remove <grupo> [app...]   Lista grupos, ou remove um ou seus apps\n"
                 "  vpngo group rename <grupo> <novo-nome>       Renomeia um grupo\n"
                 "  vpngo version                                Mostra a versão\n"
+                "  vpngo update [--check]                       Instala a versão mais recente\n"
                 "  vpngo --install-gui                          Instala a interface gráfica\n\n"
                 "  -d, --detach                                 Libera o terminal; o app continua aberto\n"
                 "  vpngo help <comando>                         Explica um comando e suas opções",

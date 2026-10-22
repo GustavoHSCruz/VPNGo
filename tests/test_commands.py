@@ -84,7 +84,7 @@ class UnifiedCommandTest(unittest.TestCase):
             "help", "profile", "profile add", "profile list", "assign", "start",
             "--temp", "switch", "stop", "status", "on", "off", "policy",
             "policy killswitch", "policy dns", "helper", "helper add", "config", "version",
-            "setup", "profiles", "-d", "profile remove", "app", "app remove", "group",
+            "setup", "profiles", "-d", "profile remove", "app", "app remove", "group", "update",
         )
         with (patch.dict(os.environ, {"VPNGO_LANG": "en-US"}),
               patch.object(commands, "backend") as backend):
