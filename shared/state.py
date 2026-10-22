@@ -108,7 +108,9 @@ def linux_routes():
         routes[name] = {"state": "direct" if direct else "vpn",
                         "active_profile": session.get("profile"),
                         "started_at": started_at,
-                        "endpoint": (namespace.get("server") or {}).get("hostname"),
+                        # Saved at start since v0.7.0; vopono leaves it empty for custom profiles.
+                        "endpoint": (session.get("endpoint") or (namespace.get("server") or {}).get("hostname")
+                                     or endpoint(session.get("profile") or "default")),
                         "executable": session.get("executable"),
                         **counters.get(identifier, {}),
                         **route_clock.view(record, None if unknown_base else counters.get(identifier))}

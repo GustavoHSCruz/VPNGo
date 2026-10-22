@@ -553,6 +553,7 @@ def switch_profile(namespace, app_name, interface, direct_interface, firewall, p
             endpoint_exception(namespace, direct_interface, firewall, old_endpoint, False)
         session["profile"] = profile_name
         session["endpoint_exception"] = list(endpoint)
+        session["endpoint"] = endpoint_text(new_profile["host"], new_profile["port"])
         save_session(namespace, session)
         print(f"{app_name} switched to profile '{profile_name}'. Existing TCP connections were reset.")
     except Exception as error:
@@ -604,7 +605,10 @@ def start_app(app_name, app, profile="default"):
     policy = assignment_for(app_name)
     if policy["dns"] and not policy["killswitch"]:
         raise SwitchError("DNS isolation requires the kill switch.")
-    dns_servers = parse_wireguard_text(text).get("dns", []) if policy["dns"] else []
+    settings = parse_wireguard_text(text)
+    dns_servers = settings.get("dns", []) if policy["dns"] else []
+    # vopono does not report a custom profile's server, so the session keeps it (host:port, not secret).
+    server = endpoint_text(settings["host"], settings["port"])
     if policy["dns"] and not dns_servers:
         raise SwitchError("DNS isolation requires an IP address in the WireGuard profile's DNS field.")
     for command in ("vopono", "pgrep", "nohup"):
@@ -635,10 +639,14 @@ def start_app(app_name, app, profile="default"):
                 stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
                 preexec_fn=os.setpgrp,
             )
-        return wait_started(app_name, app, profile, policy, namespace, process, log_path)
+        return wait_started(app_name, app, profile, policy, namespace, process, log_path, server)
 
 
-def wait_started(app_name, app, profile, policy, namespace, process, log_path):
+def endpoint_text(host, port):
+    return f"[{host}]:{port}" if ":" in str(host) else f"{host}:{port}"
+
+
+def wait_started(app_name, app, profile, policy, namespace, process, log_path, server=None):
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         status = run("vopono", "status", "--json", check=False)
@@ -652,6 +660,7 @@ def wait_started(app_name, app, profile, policy, namespace, process, log_path):
                             "app": app_name, "profile": profile, "killswitch": policy["killswitch"],
                             "dns": policy["dns"], "endpoint_exception": None,
                             "executable": app["launch"], "route": route_clock.begin("vpn"),
+                            "endpoint": server,
                         })
                         return 0
             except json.JSONDecodeError:

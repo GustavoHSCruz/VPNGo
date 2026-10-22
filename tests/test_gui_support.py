@@ -110,6 +110,18 @@ class StatusJsonTest(unittest.TestCase):
         self.assertEqual((apps["vesktop"]["origin"], apps["spotify"]["origin"], apps["steam"]["origin"]),
                          ("vpngo", "outside", None))
 
+    def test_the_server_comes_from_the_session_or_the_profile(self):
+        saved = self.namespace("vg_vesktop_us_1_2", "vesktop", "us")
+        session = self.state_dir / "vg_vesktop_us_1_2.json"
+        session.write_text(json.dumps({"app": "vesktop", "profile": "us", "endpoint": "198.51.100.4:51820"}))
+        older = self.namespace("vg_steam_br_3_4", "steam", "br")
+        with (self.vopono([saved, older]), patch.object(state.sys, "platform", "linux"),
+              patch.object(state, "endpoint", return_value="203.0.113.9:51820") as from_profile):
+            apps = {app["name"]: app for app in state.snapshot("1.0.0")["apps"]}
+        self.assertEqual((apps["vesktop"]["endpoint"], apps["steam"]["endpoint"]),
+                         ("198.51.100.4:51820", "203.0.113.9:51820"))
+        from_profile.assert_called_once_with("br")
+
     def test_sessions_without_a_clock_use_the_switch_time(self):
         namespace = self.namespace("vg_vesktop_us_1_2", "vesktop", "us", direct=True)
         os.utime(self.state_dir / "vg_vesktop_us_1_2.resolv.conf", (2000, 2000))
