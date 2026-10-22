@@ -47,30 +47,43 @@ def save(data):
 
 
 def register(path, name="default"):
+    """Copy a WireGuard file into vpngo's profiles folder, encrypted (see vault.py).
+
+    The original file is not changed; it is no longer needed afterwards.
+    """
+    import vault
+    from generate_mihomo import parse_wireguard_text
     name = profile_key(name)
     source = Path(path).expanduser().resolve(strict=True)
     if not source.is_file():
         raise AppError(f"WireGuard configuration is not a file: {source}")
-    from generate_mihomo import parse_wireguard
-    parse_wireguard(source)
+    text = source.read_text(encoding="utf-8")
+    parse_wireguard_text(text)
+    sealed = vault.seal(name, text)
     data = load()
-    data[name] = str(source)
+    previous = data.get(name)
+    data[name] = str(sealed)
     save(data)
+    if previous and Path(previous) != sealed:
+        vault.discard(previous)
     return source
 
 
 def unregister(name):
-    """Forget a profile; its .conf file stays where it is."""
+    """Forget a profile and delete its encrypted copy. A file it was added from stays where it is."""
+    import vault
     name = profile_key(name)
     data = load()
     if name not in data:
         raise AppError(f"VPN profile '{name}' was not found.")
-    del data[name]
+    path = data.pop(name)
     save(data)
+    vault.discard(path)
     return name
 
 
 def resolve(name="default"):
+    """The stored file of a profile (encrypted, or a plain .conf registered before v0.7.0)."""
     name = profile_key(name)
     data = load()
     if name not in data:
@@ -81,9 +94,42 @@ def resolve(name="default"):
     return source
 
 
+def read(name="default"):
+    """A profile's WireGuard text, decrypted in memory."""
+    import vault
+    return vault.unseal(resolve(name))
+
+
+def parsed(name="default"):
+    from generate_mihomo import parse_wireguard_text
+    return parse_wireguard_text(read(name))
+
+
 def parsed_profiles():
-    from generate_mihomo import parse_wireguard
-    return {name: parse_wireguard(resolve(name)) for name in load()}
+    return {name: parsed(name) for name in load()}
+
+
+def migrate():
+    """Encrypt profiles registered as plain .conf paths (before v0.7.0).
+
+    Returns the plain files left outside vpngo's folder, for the user to delete; a plain copy
+    inside the profiles folder is deleted once its encrypted copy reads back correctly.
+    """
+    import vault
+    data = load()
+    pending = {name: Path(path) for name, path in data.items() if not vault.sealed(path) and Path(path).is_file()}
+    if not pending:
+        return []
+    left = []
+    for name, path in pending.items():
+        sealed = vault.seal(name, path.read_text(encoding="utf-8"))
+        data[name] = str(sealed)
+        save(data)
+        if path.resolve().parent == vault.STORE.resolve():
+            path.unlink()
+        else:
+            left.append(path)
+    return left
 
 
 if __name__ == "__main__":

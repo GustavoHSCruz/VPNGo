@@ -469,7 +469,7 @@ Em todos os sistemas, `vpngo status <app>` mostra a rota atual. Conferir o ender
 | Logs e dados de sessão do Linux | `~/.local/state/vpngo/` | — |
 | Configuração e log do Mihomo | `~/.local/state/vpngo/mihomo/` (macOS) | `%LOCALAPPDATA%\vpngo\mihomo\` |
 
-Seus arquivos `.conf` e os arquivos `config.yaml` e `controller.json` da pasta do Mihomo contêm chaves privadas e senhas. Nunca compartilhe nem anexe esses arquivos em relatos de problema.
+O vpngo guarda uma cópia criptografada de cada perfil, então depois do `vpngo profile add` você pode apagar o `.conf` baixado (guarde se quiser cadastrar o perfil em outro computador). Seus arquivos `.conf` e os arquivos `config.yaml` e `controller.json` da pasta do Mihomo contêm chaves privadas e senhas. Nunca compartilhe nem anexe esses arquivos em relatos de problema.
 
 As mensagens são em inglês por padrão. Para português, defina `VPNGO_LANG=pt-BR` (`$env:VPNGO_LANG = 'pt-BR'` no PowerShell).
 

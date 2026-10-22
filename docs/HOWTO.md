@@ -467,7 +467,7 @@ On every system, `vpngo status <app>` shows the current route. Checking the addr
 | Linux logs and session data | `~/.local/state/vpngo/` | — |
 | Mihomo configuration and log | `~/.local/state/vpngo/mihomo/` (macOS) | `%LOCALAPPDATA%\vpngo\mihomo\` |
 
-Your `.conf` files and the Mihomo folder's `config.yaml` and `controller.json` contain private keys and passwords. Never share them or attach them to bug reports.
+vpngo keeps an encrypted copy of each profile, so after `vpngo profile add` you can delete the downloaded `.conf` (keep it if you want to add the profile on another computer). Your `.conf` files and the Mihomo folder's `config.yaml` and `controller.json` contain private keys and passwords. Never share them or attach them to bug reports.
 
 Messages are in English by default. For Portuguese, set `VPNGO_LANG=pt-BR` (`$env:VPNGO_LANG = 'pt-BR'` in PowerShell).
 

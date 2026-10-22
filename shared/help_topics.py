@@ -10,14 +10,14 @@ TOPICS = {
                 "Examples: vpngo help start | vpngo help profile add",
         "profile": "Usage: vpngo profile add <name> <wireguard.conf>\n"
                    "       vpngo profile list\n"
-                   "Add or list named WireGuard profiles. The .conf file stays at its original path.",
+                   "Add or list named WireGuard profiles. vpngo keeps an encrypted copy of each .conf.",
         "profile add": "Usage: vpngo profile add <name> <wireguard.conf>\n"
                        "  <name>            Name used by start, assign and switch.\n"
-                       "  <wireguard.conf>  Existing WireGuard config; its path is saved.",
+                       "  <wireguard.conf>  Existing WireGuard config; copied, encrypted, into vpngo's profiles folder.",
         "profile list": "Usage: vpngo profile list\n"
                         "List registered VPN profile names.",
         "profile remove": "Usage: vpngo profile remove <name>\n"
-                          "Forget a profile. Its .conf file is not changed. Refused while an app uses it.",
+                          "Forget a profile and delete vpngo's encrypted copy. Refused while an app uses it.",
         "app": "Usage: vpngo app remove <app>\n"
                "Forget a stopped app: its registered path, saved profile, policies and group.\n"
                "The program itself is not changed.",
@@ -109,14 +109,14 @@ TOPICS = {
                 "Exemplos: vpngo help start | vpngo help profile add",
         "profile": "Uso: vpngo profile add <nome> <wireguard.conf>\n"
                    "     vpngo profile list\n"
-                   "Cadastra ou lista perfis WireGuard. O arquivo .conf fica no caminho original.",
+                   "Cadastra ou lista perfis WireGuard. O vpngo guarda uma cópia criptografada de cada .conf.",
         "profile add": "Uso: vpngo profile add <nome> <wireguard.conf>\n"
                        "  <nome>            Nome usado por start, assign e switch.\n"
-                       "  <wireguard.conf>  Configuração existente; o caminho é salvo.",
+                       "  <wireguard.conf>  Configuração existente; copiada, criptografada, para a pasta de perfis do vpngo.",
         "profile list": "Uso: vpngo profile list\n"
                         "Lista os nomes dos perfis VPN cadastrados.",
         "profile remove": "Uso: vpngo profile remove <nome>\n"
-                          "Esquece um perfil. O arquivo .conf não muda. Recusado enquanto algum app o usa.",
+                          "Esquece um perfil e apaga a cópia criptografada do vpngo. Recusado enquanto algum app o usa.",
         "app": "Uso: vpngo app remove <app>\n"
                "Esquece um app parado: caminho cadastrado, perfil salvo, políticas e grupo.\n"
                "O programa em si não muda.",

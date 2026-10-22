@@ -273,9 +273,9 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 
 | Command | Effect |
 | --- | --- |
-| `vpngo profile add <name> <file.conf>` | Register or update a named WireGuard profile. |
+| `vpngo profile add <name> <file.conf>` | Save or update a named WireGuard profile: vpngo keeps an encrypted copy, so the original file is no longer needed. |
 | `vpngo profile list` | List registered profiles. |
-| `vpngo profile remove <name>` | Forget a profile (its `.conf` file stays). Refused while an app uses it. |
+| `vpngo profile remove <name>` | Forget a profile and delete its encrypted copy. Refused while an app uses it. |
 | `vpngo assign <app> <profile>` | Save the profile used by future `start` commands. |
 | `vpngo start <app> [profile]` | Close and launch the app on its saved or specified profile. |
 | `vpngo --temp <profile> <executable> [-d\|--detach]` | Run an executable once on the profile without saving an assignment. Add `-d` to close the original terminal. `vpngo start <executable> <profile> --temp` is equivalent. |
@@ -343,7 +343,9 @@ The command downloads the latest interface release, checks it against its `SHA25
 | Linux session logs and metadata | `~/.local/state/vpngo/` | — |
 | Generated Mihomo config, log and controller secret (macOS/Windows) | `~/.local/state/vpngo/mihomo/` | `%LOCALAPPDATA%\vpngo\mihomo\` |
 
-`.conf` files and the Mihomo folder's `config.yaml` and `controller.json` contain private keys or secrets. The repository's `.gitignore` excludes `*.conf`, `*.key`, `*.wg` and logs; still, never commit, paste or attach them. vpngo writes its registry files with owner-only permissions.
+**Profiles are stored encrypted.** `vpngo profile add` copies the `.conf` into the profiles folder, encrypted with a key the system keeps for your user, so using it needs no extra password: on Linux `systemd-creds --user` (systemd 256 or newer; otherwise the desktop keyring through `secret-tool`), on Windows DPAPI, on macOS the login Keychain. The copy can only be decrypted by your user on this machine; to move to another computer, add the original `.conf` again. Profiles saved in plain text by older versions are encrypted by the next vpngo command; a plain copy inside the profiles folder is then deleted, and vpngo tells you about one elsewhere that you may delete. On Linux, vopono still reads a plain file: vpngo writes it to a private folder in memory (`$XDG_RUNTIME_DIR`) and deletes it as soon as the app's VPN is up. On macOS and Windows, Mihomo's generated `config.yaml` holds the keys while it runs.
+
+Your original `.conf` files and the Mihomo folder's `config.yaml` and `controller.json` contain private keys or secrets. The repository's `.gitignore` excludes `*.conf`, `*.key`, `*.wg` and logs; still, never commit, paste or attach them. vpngo writes its registry files with owner-only permissions.
 
 Windows also writes a generated `proxifyre.json` in its Mihomo state folder. The elevated helper applies it to the official ProxiFyre installation only when that installation is unconfigured or owned by the same VPNGo user. Existing unrelated ProxiFyre settings are refused. The local SOCKS TCP/UDP path and unchanged host routes/adapters/proxy are tested; actual ProxiFyre driver routing still needs device validation.
 

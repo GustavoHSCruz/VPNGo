@@ -21,8 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared"))
 from i18n import tr
 from apps import AppError, add_path, find, find_temporary
 from assignments import get as assignment_for
-from generate_mihomo import parse_wireguard
-from profiles import load as load_profiles, profile_key, register, resolve
+from generate_mihomo import parse_wireguard_text
+from profiles import load as load_profiles, parsed as parsed_profile, profile_key, read as read_profile, register
+import vault
 import route_clock
 
 
@@ -507,7 +508,7 @@ def switch_profile(namespace, app_name, interface, direct_interface, firewall, p
     if session["profile"] == profile_name:
         print(f"{app_name} already uses profile '{profile_name}'.")
         return
-    new_profile = parse_wireguard(resolve(profile_name))
+    new_profile = parsed_profile(profile_name)
     if session.get("dns") and not new_profile["dns"]:
         raise SwitchError("The new profile needs a DNS address while DNS isolation is enabled.")
     if not shutil.which("ping"):
@@ -597,13 +598,13 @@ def switch_profile(namespace, app_name, interface, direct_interface, firewall, p
 def start_app(app_name, app, profile="default"):
     profile = profile_key(profile)
     override = os.environ.get("VPNGO_WG_CONFIG") if profile == "default" else None
-    config = Path(override).expanduser() if override else resolve(profile)
-    if not config.is_file():
-        raise SwitchError(tr("missing_wg_file", path=config))
+    if override and not Path(override).expanduser().is_file():
+        raise SwitchError(tr("missing_wg_file", path=override))
+    text = Path(override).expanduser().read_text(encoding="utf-8") if override else read_profile(profile)
     policy = assignment_for(app_name)
     if policy["dns"] and not policy["killswitch"]:
         raise SwitchError("DNS isolation requires the kill switch.")
-    dns_servers = parse_wireguard(config).get("dns", []) if policy["dns"] else []
+    dns_servers = parse_wireguard_text(text).get("dns", []) if policy["dns"] else []
     if policy["dns"] and not dns_servers:
         raise SwitchError("DNS isolation requires an IP address in the WireGuard profile's DNS field.")
     for command in ("vopono", "pgrep", "nohup"):
@@ -623,15 +624,21 @@ def start_app(app_name, app, profile="default"):
     log_path = STATE_DIR / "start.log"
     descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     os.fchmod(descriptor, 0o600)
-    with os.fdopen(descriptor, "a") as output:
-        launcher = dns_launcher(namespace, nsswitch, app["launch"]) if policy["dns"] else None
-        command = launch_command(config, namespace, app["launch"], policy,
-                                 dns_servers[0] if dns_servers else None, launcher)
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-            preexec_fn=os.setpgrp,
-        )
+    # vopono reads a plain .conf; it exists only until the namespace is up (see vault.py).
+    with vault.plain_file(profile, text) as config:
+        with os.fdopen(descriptor, "a") as output:
+            launcher = dns_launcher(namespace, nsswitch, app["launch"]) if policy["dns"] else None
+            command = launch_command(config, namespace, app["launch"], policy,
+                                     dns_servers[0] if dns_servers else None, launcher)
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                preexec_fn=os.setpgrp,
+            )
+        return wait_started(app_name, app, profile, policy, namespace, process, log_path)
+
+
+def wait_started(app_name, app, profile, policy, namespace, process, log_path):
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         status = run("vopono", "status", "--json", check=False)
@@ -655,45 +662,55 @@ def start_app(app_name, app, profile="default"):
     raise SwitchError(tr("start_failed", path=log_path))
 
 
+def namespace_up(namespace):
+    status = run("vopono", "status", "--json", check=False)
+    if status.returncode:
+        return False
+    try:
+        data = json.loads(status.stdout)
+    except json.JSONDecodeError:
+        return False
+    return any(item.get("id") == namespace and item.get("applications") for item in data.get("namespaces", []))
+
+
 def temporary_app(profile, application, detached=False):
     """Run a single process in a private namespace until it exits."""
-    config = resolve(profile_key(profile))
+    profile = profile_key(profile)
+    text = read_profile(profile)
     app = find_temporary(application)
     if not shutil.which("vopono"):
         raise SwitchError(tr("missing_command", name="vopono"))
     if subprocess.call(["sudo", "-v"]):
         raise SwitchError(tr("authentication_failed"))
     namespace = f"vg_temp_{os.getpid()}_{int(time.time())}"
-    command = launch_command(config, namespace, app["launch"],
-                             {"killswitch": True, "dns": False})
-    if detached:
-        STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(STATE_DIR, 0o700)
-        log_path = STATE_DIR / "temp.log"
-        descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "a") as output:
-            process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                                       stdout=output, stderr=subprocess.STDOUT,
-                                       preexec_fn=os.setpgrp)
+    # vopono reads a plain .conf; it exists only until the namespace is up (see vault.py).
+    with vault.plain_file(profile, text) as config:
+        command = launch_command(config, namespace, app["launch"], {"killswitch": True, "dns": False})
+        if detached:
+            STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(STATE_DIR, 0o700)
+            log_path = STATE_DIR / "temp.log"
+            descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "a") as output:
+                process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                                           stdout=output, stderr=subprocess.STDOUT,
+                                           preexec_fn=os.setpgrp)
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if namespace_up(namespace):
+                    print(f"{application} started through the VPN. You can close this terminal.")
+                    return 0
+                if process.poll() is not None:
+                    break
+                time.sleep(0.3)
+            raise SwitchError(tr("start_failed", path=log_path))
+        process = subprocess.Popen(command[1:])
         deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            status = run("vopono", "status", "--json", check=False)
-            if status.returncode == 0:
-                try:
-                    data = json.loads(status.stdout)
-                    if any(item.get("id") == namespace and item.get("applications")
-                           for item in data.get("namespaces", [])):
-                        print(f"{application} started through the VPN. You can close this terminal.")
-                        return 0
-                except json.JSONDecodeError:
-                    pass
-            if process.poll() is not None:
-                break
+        while time.monotonic() < deadline and process.poll() is None and not namespace_up(namespace):
             time.sleep(0.3)
-        raise SwitchError(tr("start_failed", path=log_path))
     try:
-        return subprocess.run(command[1:], check=False).returncode
+        return process.wait()
     except KeyboardInterrupt:
         return 130
 

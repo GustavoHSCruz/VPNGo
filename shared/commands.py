@@ -45,8 +45,18 @@ def configure_profile(path, profile):
             return result.returncode
         return subprocess.run([sys.executable, str(PROJECT / "shared/managed.py"), "reload"], check=False).returncode
     source = register(path, profile)
-    print(f"VPN profile '{profile}' registered from {source}.")
+    print(tr("profile_configured", profile=profile, path=source))
     return 0
+
+
+def migrate_profiles():
+    """Encrypt profiles saved as plain .conf paths by older versions; never blocks the command."""
+    from profiles import migrate
+    try:
+        for path in migrate():
+            print(tr("profile_migrated", path=path), file=sys.stderr)
+    except AppError as error:
+        print(f"vpngo: {error}", file=sys.stderr)
 
 
 def running_routes():
@@ -153,7 +163,7 @@ def remove_profile(profile):
     if sys.platform in {"darwin", "win32"}:
         subprocess.run([sys.executable, str(PROJECT / "shared/managed.py"), "reload"], check=False,
                        stdout=subprocess.DEVNULL)
-    print(f"VPN profile '{name}' removed. Its .conf file was not changed.")
+    print(f"VPN profile '{name}' removed, with vpngo's encrypted copy.")
     return 0
 
 
@@ -167,6 +177,8 @@ def main(argv=None):
     if not args:
         return usage()
     command = args[0]
+    if command not in {"version", "help", "--help", "-h", "--install-gui"} and args[1:] != ["--json"]:
+        migrate_profiles()
     if sys.platform in {"darwin", "win32"} and command not in {"version", "help", "--help", "-h", "--install-gui"}:
         from managed import reconcile_temporary
         reconcile_temporary()

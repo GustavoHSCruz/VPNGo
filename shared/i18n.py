@@ -35,7 +35,8 @@ MESSAGES = {
                 "  -d, --detach                                 Return to prompt while the app runs\n"
                 "  vpngo help <command>                         Explain a command and its options",
         "help_unknown": "Unknown help topic '{topic}'. Run 'vpngo help' to list commands.",
-        "profile_configured": "VPN profile '{profile}' registered from {path}.",
+        "profile_configured": "VPN profile '{profile}' saved, encrypted, from {path}. vpngo no longer needs that file.",
+        "profile_migrated": "Your VPN profiles are now stored encrypted. {path} is no longer needed; delete it if you like.",
         "profiles_none": "No VPN profiles configured.",
         "extra_apps": "Other applications share this namespace; network was not changed.",
         "namespace_count": "Expected one running '{app}' namespace; found {count}.",
@@ -110,7 +111,8 @@ MESSAGES = {
                 "  -d, --detach                                 Libera o terminal; o app continua aberto\n"
                 "  vpngo help <comando>                         Explica um comando e suas opções",
         "help_unknown": "Ajuda desconhecida: '{topic}'. Execute 'vpngo help' para listar os comandos.",
-        "profile_configured": "Perfil VPN '{profile}' cadastrado a partir de {path}.",
+        "profile_configured": "Perfil VPN '{profile}' salvo, criptografado, a partir de {path}. O vpngo não precisa mais desse arquivo.",
+        "profile_migrated": "Seus perfis VPN agora ficam criptografados. {path} não é mais necessário; apague se quiser.",
         "profiles_none": "Nenhum perfil VPN cadastrado.",
         "extra_apps": "Outros aplicativos compartilham este namespace; a rede não foi alterada.",
         "namespace_count": "Esperava um namespace ativo de '{app}'; encontrei {count}.",

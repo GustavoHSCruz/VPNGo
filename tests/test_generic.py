@@ -31,6 +31,7 @@ import control
 import generate_mihomo
 import managed
 import profiles
+import vault
 from generate_mihomo import build_config, group_name, profile_proxy
 
 
@@ -375,15 +376,24 @@ class LinuxCommandTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         script = importlib.util.module_from_spec(spec)
         loader.exec_module(script)
-        with (patch.object(script, "resolve", return_value=Path("/tmp/east.conf")),
+        seen = []
+
+        def popen(command, **_kwargs):
+            config = Path(command[command.index("--custom") + 1])
+            seen.append(config.read_text())  # vopono can read the plain copy while it starts.
+            return SimpleNamespace(poll=lambda: 0, wait=lambda: 0)
+        with (patch.object(script, "read_profile", return_value="[Interface]\n"),
               patch.object(script, "find_temporary", return_value={"launch": "/games/dota2"}),
               patch.object(script.shutil, "which", return_value="/usr/bin/vopono"),
               patch.object(script.subprocess, "call", return_value=0),
-              patch.object(script.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run,
+              patch.object(script.subprocess, "Popen", side_effect=popen) as run,
+              patch.object(script, "namespace_up", return_value=False),
               patch.object(script, "close_app") as close):
             self.assertEqual(script.temporary_app("east", "dota2"), 0)
         close.assert_not_called()
         command = run.call_args.args[0]
+        self.assertEqual(seen, ["[Interface]\n"])
+        self.assertFalse(Path(command[command.index("--custom") + 1]).exists())  # Gone once it started.
         self.assertEqual(command[:2], ["vopono", "exec"])
         self.assertEqual(command[-1], "/games/dota2")
 
@@ -397,7 +407,7 @@ class LinuxCommandTest(unittest.TestCase):
         status = {"namespaces": [{"id": "vg_temp_42_100", "applications": [{"argv": ["/usr/bin/kitty"]}]}]}
         with tempfile.TemporaryDirectory() as temporary:
             with (patch.object(script, "STATE_DIR", Path(temporary)),
-                  patch.object(script, "resolve", return_value=Path("/tmp/east.conf")),
+                  patch.object(script, "read_profile", return_value="[Interface]\n"),
                   patch.object(script, "find_temporary", return_value={"launch": "/usr/bin/kitty"}),
                   patch.object(script.shutil, "which", return_value="/usr/bin/vopono"),
                   patch.object(script.subprocess, "call", return_value=0),
@@ -537,8 +547,7 @@ class LinuxCommandTest(unittest.TestCase):
                   patch.object(script, "load_session", return_value=session),
                   patch.object(script, "allowed", return_value=False),
                   patch.object(script, "rule_present", return_value=False),
-                  patch.object(script, "parse_wireguard", return_value=profile),
-                  patch.object(script, "resolve", return_value=state / "west.conf"),
+                  patch.object(script, "parsed_profile", return_value=profile),
                   patch.object(script, "resolved_endpoint", return_value=("203.0.113.2", 51820)),
                   patch.object(script.shutil, "which", return_value="/usr/bin/ping"),
                   patch.object(script, "current_addresses", side_effect=[["10.0.0.2/32"], []]),
@@ -595,8 +604,7 @@ class LinuxCommandTest(unittest.TestCase):
                   patch.object(script, "load_session", return_value=session),
                   patch.object(script, "allowed", return_value=False),
                   patch.object(script, "rule_present", return_value=False),
-                  patch.object(script, "parse_wireguard", return_value=profile),
-                  patch.object(script, "resolve", return_value=state / "west.conf"),
+                  patch.object(script, "parsed_profile", return_value=profile),
                   patch.object(script, "resolved_endpoint", return_value=("203.0.113.2", 51820)),
                   patch.object(script.shutil, "which", return_value="/usr/bin/ping"),
                   patch.object(script, "current_addresses", side_effect=[["10.0.0.2/32"], []]),
@@ -619,6 +627,14 @@ class LinuxCommandTest(unittest.TestCase):
 
 
 class ProfileRegistryTest(unittest.TestCase):
+    def setUp(self):
+        # A stand-in for the OS key store, so the tests run anywhere (CI has no user systemd-creds).
+        for patcher in (patch.object(vault, "backend", return_value="dpapi"),
+                        patch.object(vault, "dpapi", side_effect=lambda data, protect: bytes(
+                            byte ^ 0x5A for byte in data))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_register_and_resolve_two_profiles(self):
         private = base64.b64encode(b"p" * 32).decode()
         public = base64.b64encode(b"q" * 32).decode()
@@ -635,8 +651,36 @@ class ProfileRegistryTest(unittest.TestCase):
                         "AllowedIPs = 0.0.0.0/0\n"
                     )
                     profiles.register(path, name)
-                    self.assertEqual(profiles.resolve(name), path)
+                    stored = profiles.resolve(name)
+                    self.assertEqual(stored.parent, vault.STORE)
+                    self.assertNotIn(private, stored.read_text(errors="replace"))
+                    self.assertEqual(profiles.read(name), path.read_text())
                 self.assertEqual(set(profiles.parsed_profiles()), {"east", "west"})
+                profiles.unregister("east")
+                self.assertFalse((vault.STORE / "east.dpapi").exists())
+
+    def test_plain_profiles_are_encrypted_and_the_internal_copy_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inside = vault.STORE / "old-us.conf"
+            inside.parent.mkdir(parents=True, exist_ok=True)
+            inside.write_text("[Interface]\nPrivateKey = secret\n")
+            outside = root / "br.conf"
+            outside.write_text("[Interface]\nPrivateKey = other\n")
+            registry = root / "profiles.json"
+            registry.write_text(json.dumps({"us": str(inside), "br": str(outside)}))
+            with patch.object(profiles, "REGISTRY", registry):
+                self.assertEqual(profiles.migrate(), [outside])
+                self.assertFalse(inside.exists())
+                self.assertTrue(outside.exists())
+                self.assertEqual(profiles.read("us"), "[Interface]\nPrivateKey = secret\n")
+                self.assertEqual(profiles.migrate(), [])
+
+    def test_plain_file_lives_only_inside_its_block(self):
+        with vault.plain_file("us", "[Interface]\n") as path:
+            self.assertEqual(path.read_text(), "[Interface]\n")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertFalse(path.parent.exists())
 
 
 if __name__ == "__main__":

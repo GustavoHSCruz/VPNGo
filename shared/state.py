@@ -170,9 +170,8 @@ def mihomo_routes():
 
 def endpoint(profile):
     try:
-        from profiles import resolve
-        from generate_mihomo import parse_wireguard
-        parsed = parse_wireguard(resolve(profile))
+        from profiles import parsed as parsed_profile
+        parsed = parsed_profile(profile)
         host = parsed["host"]
         return f"[{host}]:{parsed['port']}" if ":" in host else f"{host}:{parsed['port']}"
     except (AppError, OSError, ValueError, KeyError):

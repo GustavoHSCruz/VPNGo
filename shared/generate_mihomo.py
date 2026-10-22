@@ -58,8 +58,12 @@ def parse_endpoint(value):
 
 
 def parse_wireguard(path):
+    return parse_wireguard_text(Path(path).read_text(encoding="utf-8"))
+
+
+def parse_wireguard_text(text):
     parser = configparser.ConfigParser(interpolation=None, strict=True)
-    parser.read(path, encoding="utf-8")
+    parser.read_string(text)
     if "Interface" not in parser or "Peer" not in parser:
         raise ValueError("WireGuard file must have [Interface] and one [Peer].")
     interface, peer = parser["Interface"], parser["Peer"]
