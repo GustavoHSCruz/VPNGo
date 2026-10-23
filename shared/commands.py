@@ -14,7 +14,7 @@ from profiles import load as load_profiles, profile_key, register, resolve
 
 
 PROJECT = Path(__file__).resolve().parent.parent
-GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "on", "off", "policy", "helper", "version",
+GLOBAL_COMMANDS = {"profile", "assign", "start", "stop", "switch", "status", "check", "on", "off", "policy", "helper", "version",
                    "--install-gui", "group", "app", "update"}
 TEMP_FLAGS = {"--temp"}
 DETACH_FLAGS = {"-d", "--detach"}
@@ -47,6 +47,23 @@ def configure_profile(path, profile):
     source = register(path, profile)
     print(tr("profile_configured", profile=profile, path=source))
     return 0
+
+
+def import_profiles(paths):
+    from profiles import import_profiles as save_all
+    saved, failed = save_all(paths)
+    for name, origin in saved.items():
+        print(tr("profile_imported", profile=name, path=origin))
+    for origin, error in failed:
+        print(tr("profile_import_failed", path=origin, error=error), file=sys.stderr)
+    if not saved and not failed:
+        raise AppError(tr("profile_import_none"))
+    if saved and sys.platform in {"darwin", "win32"}:
+        subprocess.run([sys.executable, str(PROJECT / "shared/managed.py"), "reload"], check=False,
+                       stdout=subprocess.DEVNULL)
+    if saved:
+        print(tr("profile_import_done", count=len(saved)))
+    return 1 if failed else 0
 
 
 def migrate_profiles():
@@ -211,6 +228,8 @@ def main(argv=None):
             return 0
         if len(args) == 4 and args[1] == "add":
             return configure_profile(args[3], args[2])
+        if len(args) >= 3 and args[1] == "import":
+            return import_profiles(args[2:])
         if len(args) == 3 and args[1] == "remove":
             return remove_profile(args[2])
         return usage()
@@ -256,6 +275,10 @@ def main(argv=None):
         return result
     if command == "stop" and len(args) == 2:
         return backend(args[1], "stop")
+    if command == "check" and len(args) == 2:
+        if sys.platform in {"darwin", "win32"}:
+            raise AppError("vpngo check is available on Linux only for now.")
+        return backend(args[1], "check")
     if command in {"status", "on", "off"} and len(args) == 2:
         result = backend(args[1], command)
         if result == 0 and command == "status":

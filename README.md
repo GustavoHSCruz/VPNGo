@@ -274,6 +274,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | Command | Effect |
 | --- | --- |
 | `vpngo profile add <name> <file.conf>` | Save or update a named WireGuard profile: vpngo keeps an encrypted copy, so the original file is no longer needed. |
+| `vpngo profile import <folder\|file.zip\|file.conf>...` | Save every `.conf` found as a profile named after its file (`wg-NL-FREE-12.conf` becomes `wg-nl-free-12`). Folders are read without subfolders and `.zip` archives without extracting them. A refused file is reported and does not stop the others. |
 | `vpngo profile list` | List registered profiles. |
 | `vpngo profile remove <name>` | Forget a profile and delete its encrypted copy. Refused while an app uses it. |
 | `vpngo assign <app> <profile>` | Save the profile used by future `start` commands. |
@@ -282,6 +283,7 @@ Keep the original `.conf` files at their registered paths. vpngo stores their pa
 | `vpngo stop <app>` | Close the app and end its managed VPN session. On macOS/Windows, block that app's selector while leaving Mihomo available to others. |
 | `vpngo switch <app> <profile>` | Change a running app's profile and save the new assignment after success. |
 | `vpngo status <app>` | Show the app's active route and saved settings. |
+| `vpngo check <app>` | Linux: compare the running app's public IP and country with this computer's, and show whether each DNS server of its namespace goes through the tunnel. Exits with 1 when the app is not on the VPN. |
 | `vpngo status --json` | Print every profile, group and app as JSON without asking for a password: route, start time, when the current route began and the time on each route, VPN server, byte counters of running apps (in total and since the last switch), and whether an app was opened by vpngo or outside it (running without a VPN route). Used by the graphical interface. |
 | `vpngo off <app>` / `vpngo on <app>` | Intentionally select the direct route, or return to the assigned VPN. |
 | `vpngo policy <app> killswitch on\|off` | Set the Linux per-app fail-closed policy for the next start. Default: on. |

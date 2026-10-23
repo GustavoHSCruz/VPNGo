@@ -11,6 +11,7 @@ import stat
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -84,7 +85,7 @@ class UnifiedCommandTest(unittest.TestCase):
             "help", "profile", "profile add", "profile list", "assign", "start",
             "--temp", "switch", "stop", "status", "on", "off", "policy",
             "policy killswitch", "policy dns", "helper", "helper add", "config", "version",
-            "setup", "profiles", "-d", "profile remove", "app", "app remove", "group", "update",
+            "setup", "profiles", "-d", "profile remove", "profile import", "check", "app", "app remove", "group", "update",
         )
         with (patch.dict(os.environ, {"VPNGO_LANG": "en-US"}),
               patch.object(commands, "backend") as backend):
@@ -146,12 +147,56 @@ class UnifiedCommandTest(unittest.TestCase):
             if os.name == "posix":
                 self.assertEqual((root / "assignments.json").stat().st_mode & 0o777, 0o600)
 
+    def test_profile_import_names_profiles_after_files_and_skips_bad_ones(self):
+        private = base64.b64encode(b"a" * 32).decode()
+        public = base64.b64encode(b"b" * 32).decode()
+        conf = (f"[Interface]\nPrivateKey = {private}\nAddress = 10.0.0.2/32\n"
+                f"[Peer]\nPublicKey = {public}\nEndpoint = 203.0.113.1:51820\nAllowedIPs = 0.0.0.0/0\n")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "downloads"
+            (folder / "nested").mkdir(parents=True)
+            (folder / "wg-NL-FREE-12.conf").write_text(conf)
+            (folder / "broken.conf").write_text("[Interface]\n")
+            (folder / "notes.txt").write_text(conf)
+            (folder / "nested" / "deep.conf").write_text(conf)
+            archive = root / "proton.zip"
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr("configs/JP FREE#3.conf", conf)
+                output.writestr("configs/wg-nl-free-12.conf", conf)
+                output.writestr("__MACOSX/._x.conf", "junk")
+            (root / "profiles.json").write_text("{}")
+            with (patch.object(profiles, "REGISTRY", root / "profiles.json"),
+                  patch.dict(os.environ, {"VPNGO_LANG": "en-US"}),
+                  contextlib.redirect_stdout(io.StringIO()) as output,
+                  contextlib.redirect_stderr(io.StringIO()) as errors):
+                self.assertEqual(commands.main(["profile", "import", str(folder), str(archive)]), 1)
+                self.assertEqual(sorted(profiles.load()), ["jp-free-3", "wg-nl-free-12"])
+                self.assertIn("2 profile(s) imported", output.getvalue())
+                self.assertIn("broken.conf", errors.getvalue())
+                self.assertIn("already taken", errors.getvalue())
+                self.assertNotIn("deep", output.getvalue() + errors.getvalue())
+                self.assertIn("Address", profiles.read("jp-free-3"))
+                (root / "empty").mkdir()
+                with self.assertRaises(apps.AppError):
+                    commands.main(["profile", "import", str(root / "empty")])
+        self.assertEqual(profiles.import_name("2024 server.conf"), "p-2024-server")
+        self.assertEqual(profiles.import_name("x" * 40 + ".conf"), "x" * 32)
+
     def test_failed_switch_keeps_previous_assignment(self):
         with (patch.object(commands, "resolve"),
               patch.object(commands, "backend", return_value=1),
               patch.object(commands, "assign") as assign):
             self.assertEqual(commands.main(["switch", "example-app", "west"]), 1)
         assign.assert_not_called()
+
+    def test_check_runs_on_linux_only(self):
+        with patch.object(commands, "backend", return_value=0) as backend:
+            self.assertEqual(commands.main(["check", "firefox"]), 0)
+            backend.assert_called_once_with("firefox", "check")
+            with patch.object(commands.sys, "platform", "darwin"), self.assertRaises(apps.AppError):
+                commands.main(["check", "firefox"])
+            backend.assert_called_once()
 
     def test_stop_uses_application_backend(self):
         with patch.object(commands, "backend", return_value=0) as backend:

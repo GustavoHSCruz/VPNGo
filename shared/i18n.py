@@ -11,6 +11,7 @@ MESSAGES = {
                  "Run 'vpngo help' for all commands.",
         "help": "VPNGo — route apps through WireGuard.\n\n"
                 "  vpngo profile add <name> <file.conf>         Save a VPN profile\n"
+                "  vpngo profile import <folder|zip|file>...    Save every .conf, named after its file\n"
                 "  vpngo profile list                          List profiles\n"
                 "  vpngo profile remove <name>                  Forget a profile\n"
                 "  vpngo assign <app> <profile>                 Save an app's profile\n"
@@ -18,6 +19,7 @@ MESSAGES = {
                 "  vpngo --temp <profile> <executable> [-d]     Run once without saving\n"
                 "  vpngo start <executable> <profile> --temp [-d]  Same temporary run\n"
                 "  vpngo switch <app> <profile>                 Change the active profile\n"
+                "  vpngo check <app>                            Compare the app's IP and DNS with yours (Linux)\n"
                 "  vpngo stop <app>                             Stop the app and VPN session\n"
                 "  vpngo status <app>                           Show the app's route\n"
                 "  vpngo on|off <app>                           Select VPN or direct route\n"
@@ -39,6 +41,24 @@ MESSAGES = {
         "profile_configured": "VPN profile '{profile}' saved, encrypted, from {path}. vpngo no longer needs that file.",
         "profile_migrated": "Your VPN profiles are now stored encrypted. {path} is no longer needed; delete it if you like.",
         "profiles_none": "No VPN profiles configured.",
+        "check_profile": "profile {profile}",
+        "check_app_ip": "App's public IP ",
+        "check_your_ip": "Your public IP  ",
+        "check_no_answer": "no answer",
+        "check_dns": "DNS server      ",
+        "check_dns_tunnel": "(through the tunnel)",
+        "check_dns_direct": "(NOT through the tunnel)",
+        "check_dns_resolved": "Note: DNS isolation is off and this system resolves names through systemd-resolved, "
+                              "outside the tunnel; {app}'s lookups can bypass the VPN. "
+                              "Turn it on with: vpngo policy {app} dns on",
+        "check_failed": "Result: the app's network did not answer. Check the route with 'vpngo status'.",
+        "check_same_ip": "Result: the app leaves the internet with your own IP; it is NOT on the VPN.",
+        "check_not_on": "Result: {app} is not fully on the VPN. Run 'vpngo on {app}'.",
+        "check_ok": "Result: the app's traffic leaves through the VPN.",
+        "profile_imported": "VPN profile '{profile}' saved, encrypted, from {path}.",
+        "profile_import_failed": "Skipped {path}: {error}",
+        "profile_import_none": "No .conf file found to import.",
+        "profile_import_done": "{count} profile(s) imported. vpngo no longer needs those files.",
         "extra_apps": "Other applications share this namespace; network was not changed.",
         "namespace_count": "Expected one running '{app}' namespace; found {count}.",
         "invalid_namespace": "Invalid network namespace name.",
@@ -88,6 +108,7 @@ MESSAGES = {
                  "Execute 'vpngo help' para ver todos os comandos.",
         "help": "VPNGo — aplicativos pela VPN WireGuard.\n\n"
                 "  vpngo profile add <nome> <arquivo.conf>      Salva um perfil VPN\n"
+                "  vpngo profile import <pasta|zip|arquivo>...  Salva cada .conf com o nome do arquivo\n"
                 "  vpngo profile list                          Lista os perfis\n"
                 "  vpngo profile remove <nome>                  Esquece um perfil\n"
                 "  vpngo assign <app> <perfil>                  Salva o perfil do app\n"
@@ -95,6 +116,7 @@ MESSAGES = {
                 "  vpngo --temp <perfil> <executável> [-d]     Executa uma vez, sem salvar\n"
                 "  vpngo start <executável> <perfil> --temp [-d]  Mesmo uso temporário\n"
                 "  vpngo switch <app> <perfil>                  Troca o perfil em uso\n"
+                "  vpngo check <app>                            Compara o IP e o DNS do app com os seus (Linux)\n"
                 "  vpngo stop <app>                             Fecha o app e sua sessão VPN\n"
                 "  vpngo status <app>                           Mostra a rota do app\n"
                 "  vpngo on|off <app>                           Seleciona VPN ou rota direta\n"
@@ -116,6 +138,24 @@ MESSAGES = {
         "profile_configured": "Perfil VPN '{profile}' salvo, criptografado, a partir de {path}. O vpngo não precisa mais desse arquivo.",
         "profile_migrated": "Seus perfis VPN agora ficam criptografados. {path} não é mais necessário; apague se quiser.",
         "profiles_none": "Nenhum perfil VPN cadastrado.",
+        "check_profile": "perfil {profile}",
+        "check_app_ip": "IP público do app",
+        "check_your_ip": "Seu IP público   ",
+        "check_no_answer": "sem resposta",
+        "check_dns": "Servidor DNS     ",
+        "check_dns_tunnel": "(pelo túnel)",
+        "check_dns_direct": "(FORA do túnel)",
+        "check_dns_resolved": "Atenção: o isolamento de DNS está desligado e este sistema resolve nomes pelo "
+                              "systemd-resolved, fora do túnel; as consultas do {app} podem escapar da VPN. "
+                              "Ligue com: vpngo policy {app} dns on",
+        "check_failed": "Resultado: a rede do app não respondeu. Confira a rota com 'vpngo status'.",
+        "check_same_ip": "Resultado: o app sai para a internet com o seu próprio IP; ele NÃO está na VPN.",
+        "check_not_on": "Resultado: o {app} não está totalmente na VPN. Rode 'vpngo on {app}'.",
+        "check_ok": "Resultado: o tráfego do app sai pela VPN.",
+        "profile_imported": "Perfil VPN '{profile}' salvo, criptografado, a partir de {path}.",
+        "profile_import_failed": "{path} ignorado: {error}",
+        "profile_import_none": "Nenhum arquivo .conf encontrado para importar.",
+        "profile_import_done": "{count} perfil(is) importado(s). O vpngo não precisa mais desses arquivos.",
         "extra_apps": "Outros aplicativos compartilham este namespace; a rede não foi alterada.",
         "namespace_count": "Esperava um namespace ativo de '{app}'; encontrei {count}.",
         "invalid_namespace": "Nome de namespace inválido.",

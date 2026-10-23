@@ -9,11 +9,20 @@ TOPICS = {
                 "Show all commands, or explain one command and its options.\n"
                 "Examples: vpngo help start | vpngo help profile add",
         "profile": "Usage: vpngo profile add <name> <wireguard.conf>\n"
+                   "       vpngo profile import <folder|file.zip|file.conf>...\n"
                    "       vpngo profile list\n"
                    "Add or list named WireGuard profiles. vpngo keeps an encrypted copy of each .conf.",
         "profile add": "Usage: vpngo profile add <name> <wireguard.conf>\n"
                        "  <name>            Name used by start, assign and switch.\n"
                        "  <wireguard.conf>  Existing WireGuard config; copied, encrypted, into vpngo's profiles folder.",
+        "check": "Usage: vpngo check <app>\n"
+                 "Linux. Compare the running app's public IP and country with this computer's, and show\n"
+                 "whether each DNS server of its namespace is reached through the tunnel.\n"
+                 "Exits with 1 when the app is not on the VPN or its network does not answer.",
+        "profile import": "Usage: vpngo profile import <folder|file.zip|file.conf>...\n"
+                          "Save every .conf found as a profile named after its file (wg-NL-FREE-12.conf becomes\n"
+                          "wg-nl-free-12). A folder is read without subfolders; a .zip is read without extracting it.\n"
+                          "An existing profile with the same name is updated. A refused file does not stop the others.",
         "profile list": "Usage: vpngo profile list\n"
                         "List registered VPN profile names.",
         "profile remove": "Usage: vpngo profile remove <name>\n"
@@ -114,11 +123,20 @@ TOPICS = {
                 "Lista os comandos ou explica as opções de um comando.\n"
                 "Exemplos: vpngo help start | vpngo help profile add",
         "profile": "Uso: vpngo profile add <nome> <wireguard.conf>\n"
+                   "     vpngo profile import <pasta|arquivo.zip|arquivo.conf>...\n"
                    "     vpngo profile list\n"
                    "Cadastra ou lista perfis WireGuard. O vpngo guarda uma cópia criptografada de cada .conf.",
         "profile add": "Uso: vpngo profile add <nome> <wireguard.conf>\n"
                        "  <nome>            Nome usado por start, assign e switch.\n"
                        "  <wireguard.conf>  Configuração existente; copiada, criptografada, para a pasta de perfis do vpngo.",
+        "check": "Uso: vpngo check <app>\n"
+                 "Linux. Compara o IP público e o país do app aberto com os deste computador e mostra\n"
+                 "se cada servidor DNS do namespace dele é alcançado pelo túnel.\n"
+                 "Sai com 1 quando o app não está na VPN ou a rede dele não responde.",
+        "profile import": "Uso: vpngo profile import <pasta|arquivo.zip|arquivo.conf>...\n"
+                          "Salva cada .conf encontrado como um perfil com o nome do arquivo (wg-NL-FREE-12.conf vira\n"
+                          "wg-nl-free-12). A pasta é lida sem as subpastas; o .zip é lido sem ser extraído.\n"
+                          "Um perfil existente com o mesmo nome é atualizado. Um arquivo recusado não impede os outros.",
         "profile list": "Uso: vpngo profile list\n"
                         "Lista os nomes dos perfis VPN cadastrados.",
         "profile remove": "Uso: vpngo profile remove <nome>\n"

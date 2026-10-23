@@ -271,6 +271,90 @@ def turn_on(namespace, wg_interface, direct_interface, firewall, app_name):
     print(tr("on", app=app_name))
 
 
+def route_state(namespace, wg_interface, direct_interface, firewall):
+    """("on", "off" or "partial", the namespace's IPv4 route to the internet)."""
+    is_off = allowed(namespace, direct_interface, firewall)
+    direct_rule = rule_present(namespace, "-4", RULE_PRIORITY)
+    ipv6_block = rule_present(namespace, "-6", RULE_PRIORITY)
+    route = netns(namespace, "ip", "-4", "route", "get", "1.1.1.1").stdout.strip()
+    if is_off and direct_rule and ipv6_block and f"dev {direct_interface}" in route:
+        return "off", route
+    if not is_off and not direct_rule and not ipv6_block and f"dev {wg_interface}" in route:
+        return "on", route
+    return "partial", route
+
+
+# Cloudflare answers with the caller's public IP and country. An IP address in the URL keeps
+# DNS out of the IP test; the resolvers are checked separately below.
+TRACE_URL = "https://1.1.1.1/cdn-cgi/trace"
+TRACE_CODE = f"import urllib.request\nprint(urllib.request.urlopen({TRACE_URL!r}, timeout=10).read().decode())"
+
+
+def trace_fields(text):
+    return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+
+
+def direct_trace():
+    import urllib.request
+    try:
+        return trace_fields(urllib.request.urlopen(TRACE_URL, timeout=10).read().decode())
+    except OSError:
+        return {}
+
+
+def nameservers(namespace):
+    try:
+        lines = (Path("/etc/netns") / namespace / "resolv.conf").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    return [line.split()[1] for line in lines if line.startswith("nameserver") and len(line.split()) > 1]
+
+
+def host_resolver_reachable():
+    """Whether the host's NSS asks systemd-resolved, which answers from outside the namespace."""
+    try:
+        lines = Path("/etc/nsswitch.conf").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    return any(line.split(":", 1)[0].strip() == "hosts" and "resolve" in line.split(":", 1)[1].split()
+               for line in lines if ":" in line)
+
+
+def check_app(app_name, namespace, wg_interface, direct_interface, firewall):
+    """Compare the app's public IP with this computer's and show where its DNS lookups go."""
+    state, _route = route_state(namespace, wg_interface, direct_interface, firewall)
+    session = load_session(namespace) if session_path(namespace).is_file() else {}
+    profile = f" ({tr('check_profile', profile=session['profile'])})" if session.get("profile") else ""
+    print(f"{app_name}: {tr('status_' + state)}{profile}")
+    inside = netns(namespace, sys.executable, "-I", "-c", TRACE_CODE, check=False)
+    app_trace = trace_fields(inside.stdout) if inside.returncode == 0 else {}
+    host_trace = direct_trace()
+    describe = lambda trace: f"{trace['ip']} ({trace.get('loc', '?')})" if trace.get("ip") else tr("check_no_answer")
+    print(f"  {tr('check_app_ip')}: {describe(app_trace)}")
+    print(f"  {tr('check_your_ip')}: {describe(host_trace)}")
+    for server in nameservers(namespace):
+        try:
+            ipaddress.ip_address(server)
+        except ValueError:
+            continue
+        route = netns(namespace, "ip", "route", "get", server, check=False).stdout
+        where = tr("check_dns_tunnel") if f"dev {wg_interface}" in route else tr("check_dns_direct")
+        print(f"  {tr('check_dns')}: {server} {where}")
+    if not session.get("dns") and host_resolver_reachable():
+        print(f"  {tr('check_dns_resolved', app=app_name)}")
+    if not app_trace.get("ip"):
+        print(tr("check_failed"))
+        return 1
+    if host_trace.get("ip") == app_trace["ip"]:
+        print(tr("check_same_ip"))
+        return 1
+    if state != "on":
+        print(tr("check_not_on", app=app_name))
+        return 1
+    print(tr("check_ok"))
+    return 0
+
+
 def reconnect(namespace):
     # The namespace contains just the selected app. Abort its old TCP sockets
     # so its normal retry logic can open new ones on the new route.
@@ -767,7 +851,7 @@ def main():
         return 2
     if len(sys.argv) == 4:
         mode = sys.argv[2]
-    if mode not in {"start", "stop", "on", "off", "status", "switch"} or (mode == "switch" and len(sys.argv) != 4):
+    if mode not in {"start", "stop", "on", "off", "status", "switch", "check"} or (mode == "switch" and len(sys.argv) != 4):
         print(tr("usage"), file=sys.stderr)
         return 2
     if mode == "start":
@@ -780,10 +864,10 @@ def main():
             app = None
         return stop_app(app_name, app["launch"] if app else None)
     app = find(app_name)
-    namespace = app_namespace(app_name, app["launch"], allow_missing=mode == "status")
+    namespace = app_namespace(app_name, app["launch"], allow_missing=mode in {"status", "check"})
     if namespace is None:
         print(f"{app_name}: {tr('status_no_session')}")
-        return 0
+        return 1 if mode == "check" else 0
     run("sudo", "-v")
     wg_interface, direct_interface, firewall = network_details(namespace)
     if mode == "switch":
@@ -792,18 +876,11 @@ def main():
         turn_off(namespace, wg_interface, direct_interface, firewall, app_name)
     elif mode == "on":
         turn_on(namespace, wg_interface, direct_interface, firewall, app_name)
+    elif mode == "check":
+        return check_app(app_name, namespace, wg_interface, direct_interface, firewall)
     else:
-        is_off = allowed(namespace, direct_interface, firewall)
-        direct_rule = rule_present(namespace, "-4", RULE_PRIORITY)
-        ipv6_block = rule_present(namespace, "-6", RULE_PRIORITY)
-        route = netns(namespace, "ip", "-4", "route", "get", "1.1.1.1").stdout.strip()
-        route_via_wg = f"dev {wg_interface}" in route
-        route_direct = f"dev {direct_interface}" in route
-        mode_name = tr("status_off") if is_off and direct_rule and ipv6_block and route_direct else (
-            tr("status_on") if not is_off and not direct_rule and not ipv6_block and route_via_wg
-            else tr("status_partial")
-        )
-        print(f"{app_name}: {mode_name}")
+        state, route = route_state(namespace, wg_interface, direct_interface, firewall)
+        print(f"{app_name}: {tr('status_' + state)}")
         session_file = session_path(namespace)
         if session_file.is_file():
             session = load_session(namespace)

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+import zipfile
 from pathlib import Path
 
 from apps import AppError, config_dir
@@ -51,13 +52,19 @@ def register(path, name="default"):
 
     The original file is not changed; it is no longer needed afterwards.
     """
-    import vault
-    from generate_mihomo import parse_wireguard_text
     name = profile_key(name)
     source = Path(path).expanduser().resolve(strict=True)
     if not source.is_file():
         raise AppError(f"WireGuard configuration is not a file: {source}")
-    text = source.read_text(encoding="utf-8")
+    store(name, source.read_text(encoding="utf-8"))
+    return source
+
+
+def store(name, text):
+    """Validate WireGuard text and save it, encrypted, as profile name."""
+    import vault
+    from generate_mihomo import parse_wireguard_text
+    name = profile_key(name)
     parse_wireguard_text(text)
     sealed = vault.seal(name, text)
     data = load()
@@ -66,7 +73,71 @@ def register(path, name="default"):
     save(data)
     if previous and Path(previous) != sealed:
         vault.discard(previous)
-    return source
+
+
+MAX_CONF_BYTES = 64 * 1024  # A WireGuard client file is well under 1 KiB.
+
+
+def import_name(filename):
+    """A profile name from a file name: wg-NL-FREE-12.conf becomes wg-nl-free-12."""
+    stem = re.sub(r"[^a-z0-9_-]+", "-", Path(filename).stem.casefold()).strip("-_")
+    if stem and not stem[0].isalpha():
+        stem = "p-" + stem
+    return profile_key(stem[:32].rstrip("-_"))
+
+
+def import_sources(paths):
+    """(origin, file name, text) of every .conf in the given files, folders and .zip archives.
+
+    A folder is read without its subfolders; an archive is read in memory, never extracted.
+    """
+    found = []
+    for value in paths:
+        path = Path(value).expanduser().resolve(strict=True)
+        if path.is_dir():
+            files = sorted(item for item in path.iterdir() if item.suffix.casefold() == ".conf" and item.is_file())
+            found += [(str(item), item.name, item) for item in files]
+        elif zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as archive:
+                for member in sorted(archive.infolist(), key=lambda item: item.filename):
+                    name = Path(member.filename).name
+                    if member.is_dir() or not name.casefold().endswith(".conf") or name.startswith("."):
+                        continue
+                    origin = f"{path}:{member.filename}"
+                    if member.file_size > MAX_CONF_BYTES:
+                        found.append((origin, name, AppError("File is too large to be a WireGuard configuration.")))
+                    else:
+                        found.append((origin, name, archive.read(member).decode("utf-8")))
+        elif path.is_file():
+            found.append((str(path), path.name, path))
+        else:
+            raise AppError(f"Not a file, folder or .zip archive: {path}")
+    return found
+
+
+def import_profiles(paths):
+    """Save each .conf found in paths as a profile named after its file.
+
+    Returns (saved, failed): saved maps each profile name to its origin; failed lists
+    (origin, error) for files that were refused. One bad file does not stop the others.
+    """
+    saved, failed = {}, []
+    for origin, filename, content in import_sources(paths):
+        try:
+            if isinstance(content, Exception):
+                raise content
+            name = import_name(filename)
+            if name in saved:
+                raise AppError(f"Profile name '{name}' is already taken by {saved[name]}; rename one file.")
+            if isinstance(content, Path):
+                if content.stat().st_size > MAX_CONF_BYTES:
+                    raise AppError("File is too large to be a WireGuard configuration.")
+                content = content.read_text(encoding="utf-8")
+            store(name, content)
+            saved[name] = origin
+        except (AppError, OSError, ValueError, UnicodeDecodeError) as error:
+            failed.append((origin, error))
+    return saved, failed
 
 
 def unregister(name):
