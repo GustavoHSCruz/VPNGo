@@ -22,7 +22,8 @@
 ; ProxiFyre task unless /TASKS or /MERGETASKS asks for it, so it never shows a UAC prompt by
 ; surprise. Exit code 0 means installed; besides Inno Setup's own codes, 10 means the vpngo
 ; command could not be created, 11 means the ProxiFyre setup failed and 12 means the interface
-; could not be installed (vpngo is installed in both cases).
+; could not be installed (vpngo is installed in both cases). The setup refuses to run (exit code 1)
+; while vpngo's MSI package is installed.
 
 #ifndef AppVersion
   #error Pass /DAppVersion=<version>
@@ -94,6 +95,8 @@ en.GuiFailed=The graphical interface could not be installed (exit %1). vpngo is 
 ptbr.GuiFailed=Não foi possível instalar a interface gráfica (código %1). O vpngo está instalado; rode vpngo --install-gui depois para tentar de novo.
 en.GuiNeedsPython=The graphical interface needs Python 3, which was not found. vpngo is installed; install Python (step 1 of the Windows guide), then run vpngo --install-gui.
 ptbr.GuiNeedsPython=A interface gráfica precisa do Python 3, que não foi encontrado. O vpngo está instalado; instale o Python (passo 1 do guia do Windows) e rode vpngo --install-gui.
+en.MsiInstalled=vpngo is already installed by its MSI package. Uninstall it in Settings > Apps first, or keep using the MSI.
+ptbr.MsiInstalled=O vpngo já está instalado pelo pacote MSI. Desinstale-o em Configurações > Aplicativos primeiro, ou continue usando o MSI.
 en.LaunchGui=Open VPNGo
 ptbr.LaunchGui=Abrir o VPNGo
 ptbr.PythonMissing=O vpngo está instalado, mas o Python 3 não foi encontrado. Instale-o (passo 1 do guia do Windows), abra um terminal novo e rode vpngo version.
@@ -192,6 +195,13 @@ begin
     DelTree(ExpandConstant('{tmp}'), True, True, True);
     ExitProcess(Code);
   end;
+  // One installer at a time: the MSI also adds the vpngo command and the VPNGo shortcut.
+  // Checked after the --silent hand-off, so a silent run suppresses the message.
+  if RegValueExists(HKCU, 'Software\vpngo\msi', 'path') then begin
+    SuppressibleMsgBox(CustomMessage('MsiInstalled'), mbError, MB_OK, IDOK);
+    Result := False;
+    exit;
+  end;
   Result := True;
 end;
 
@@ -285,6 +295,8 @@ begin
       SuppressibleMsgBox(CustomMessage('PythonMissing'), mbInformation, MB_OK, IDOK);
   end else if GuiWanted() then begin
     WizardForm.StatusLabel.Caption := CustomMessage('InstallingGui');
+    if not PowerShell('stop-gui.ps1', '', Code) then
+      Log(Format('windows\stop-gui.ps1 failed with exit code %d', [Code]));
     if PowerShell('vpngo.ps1', ' --install-gui', Code) then begin
       GuiDone := True;
       CreateShellLink(ExpandConstant('{userprograms}\VPNGo.lnk'), 'VPNGo',
@@ -345,7 +357,11 @@ var
   Bin: String;
   FindRec: TFindRec;
   Empty: Boolean;
+  Code: Integer;
 begin
+  // Close the interface while windows\stop-gui.ps1 is still installed.
+  if (CurUninstallStep = usUninstall) and FileExists(ExpandConstant('{userprograms}\VPNGo.lnk')) then
+    PowerShell('stop-gui.ps1', '', Code);
   if CurUninstallStep <> usPostUninstall then
     exit;
   // windows\install.ps1 created the command; mihomo.exe and vpngo-gui.cmd may share its folder,

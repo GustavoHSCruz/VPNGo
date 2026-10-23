@@ -18,6 +18,8 @@ sh install-macos.sh
 
 **Windows**: download and run `vpngo-@VERSION@-windows-setup.exe` below. It asks whether to install the VPNGo app with its graphical interface or only the `vpngo` command, and needs no administrator rights. Silent install: `vpngo-@VERSION@-windows-setup.exe --silent` (add `--cli-only` for the command only).
 
+**Windows (MSI)**, for managed deployment: `vpngo-@VERSION@-windows.msi`, also per user and without administrator rights. `msiexec /i vpngo-@VERSION@-windows.msi /qn` installs vpngo and the interface; add `ADDLOCAL=Cli` for the command only. Use either the setup or the MSI, not both.
+
 **Windows** (PowerShell, command only)
 
 ```powershell
@@ -45,6 +47,7 @@ The installers download the archive for your system, check it against `SHA256SUM
 | `vpngo-@VERSION@-macos.*` | macOS launcher and installer |
 | `vpngo-@VERSION@-windows.*` | Windows launcher and installer |
 | `vpngo-@VERSION@-windows-setup.exe` | Windows setup (app with graphical interface, or command only) |
+| `vpngo-@VERSION@-windows.msi` | Windows Installer package (same choice, for managed deployment) |
 | `vpngo_*_all.deb`, `vpngo-*.noarch.rpm` | Linux packages for Ubuntu/Debian and Fedora |
 | `PKGBUILD` | Arch Linux package recipe (stable releases) |
 | `install-*.sh`, `install-windows.ps1` | Download-and-install scripts |

@@ -175,7 +175,8 @@ jobs:
           if ($Output -ne "vpngo $env:VERSION") { throw "Unexpected version output: $Output" }
           $Gui = & (Join-Path $env:LOCALAPPDATA 'vpngo-gui\venv\Scripts\python.exe') (Join-Path $env:LOCALAPPDATA 'vpngo-gui\app\run.py') --version
           if ($Gui -notlike 'vpngo-gui *') { throw "Unexpected interface version output: $Gui" }
-          $Uninstaller = Join-Path $env:LOCALAPPDATA 'vpngo\uninstall\unins000.exe'
+          # The registry names the current uninstaller (unins000.exe, unins001.exe, ...).
+          $Uninstaller = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6B1E5C7A-3F2D-4B8E-9A61-2C0D7E4F9B13}_is1').UninstallString.Trim('"')
           $Process = Start-Process -FilePath $Uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -PassThru -Wait
           if ($Process.ExitCode -ne 0) { throw "Silent uninstall failed (exit $($Process.ExitCode))." }
           Start-Sleep -Seconds 5  # The uninstaller removes its own folder from a helper process.
@@ -183,10 +184,49 @@ jobs:
           if (Test-Path (Join-Path $env:LOCALAPPDATA 'vpngo\app')) { throw 'The uninstaller left the app folder behind.' }
           if (Test-Path $Shortcut) { throw 'The uninstaller left the Start menu shortcut behind.' }
           if (Test-Path (Join-Path $env:LOCALAPPDATA 'vpngo-gui\app')) { throw 'The uninstaller left the interface behind.' }
+      - name: Build the MSI from the Windows archive
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 6.0.2
+          wix extension add -g WixToolset.Util.wixext/6.0.2 WixToolset.UI.wixext/6.0.2
+          # MSI versions are numeric only: 1.2.3-rc.1 becomes 1.2.3.
+          $MsiVersion = $env:VERSION.Split('-')[0]
+          Push-Location packaging\msi
+          wix build vpngo.wxs -arch x64 -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `
+            -d "Version=$MsiVersion" -bindpath "src=$PWD\..\..\unpacked\vpngo-$env:VERSION-windows" `
+            -o "..\..\setup\vpngo-$env:VERSION-windows.msi"
+          if ($LASTEXITCODE -ne 0) { throw 'wix build failed.' }
+          Pop-Location
+      - name: Install, add the interface and uninstall the MSI silently
+        shell: pwsh
+        run: |
+          $Msi = (Resolve-Path "setup\vpngo-$env:VERSION-windows.msi").Path
+          $Dir = Join-Path $env:LOCALAPPDATA 'Programs\vpngo'
+          $Shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\VPNGo.lnk'
+          function Msi($Arguments, $Log) {
+            $Process = Start-Process msiexec -ArgumentList "$Arguments /qn /l*v `"$PWD\$Log`"" -PassThru -Wait
+            if ($Process.ExitCode -ne 0) { Get-Content $Log -Tail 60; throw "msiexec $Arguments failed (exit $($Process.ExitCode))." }
+          }
+          Msi "/i `"$Msi`" ADDLOCAL=Cli" 'msi-cli.log'
+          $Output = & (Join-Path $Dir 'windows\vpngo.cmd') version
+          if ($Output -ne "vpngo $env:VERSION") { throw "Unexpected version output: $Output" }
+          if (Test-Path $Shortcut) { throw 'The command-line-only MSI install added the Start menu shortcut.' }
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains "$Dir\windows") { throw 'The MSI did not add vpngo to the user PATH.' }
+          Msi "/i `"$Msi`" ADDLOCAL=Gui" 'msi-gui.log'
+          if (-not (Test-Path $Shortcut)) { throw 'Adding the interface did not create the Start menu shortcut.' }
+          $Gui = & (Join-Path $env:LOCALAPPDATA 'vpngo-gui\venv\Scripts\python.exe') (Join-Path $env:LOCALAPPDATA 'vpngo-gui\app\run.py') --version
+          if ($Gui -notlike 'vpngo-gui *') { throw "Unexpected interface version output: $Gui" }
+          Msi "/x `"$Msi`"" 'msi-remove.log'
+          if (Test-Path $Dir) { throw 'The MSI uninstall left the program folder behind.' }
+          if (Test-Path $Shortcut) { throw 'The MSI uninstall left the Start menu shortcut behind.' }
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'vpngo-gui\app')) { throw 'The MSI uninstall left the interface behind.' }
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains "$Dir\windows") { throw 'The MSI uninstall left vpngo in the user PATH.' }
       - uses: actions/upload-artifact@v7
         with:
           name: windows-setup
-          path: setup/*.exe
+          path: |
+            setup/*.exe
+            setup/*.msi
           if-no-files-found: error
 
   rpm:
@@ -254,7 +294,7 @@ jobs:
           path: dist
       - name: Publish the release
         run: |
-          (cd dist && sha256sum vpngo-*-windows-setup.exe >> SHA256SUMS && sha256sum -c SHA256SUMS)
+          (cd dist && sha256sum vpngo-*-windows-setup.exe vpngo-*-windows.msi >> SHA256SUMS && sha256sum -c SHA256SUMS)
           sed -e "s|@VERSION@|$VERSION|g" -e "s|@REPOSITORY@|$GITHUB_REPOSITORY|g" \
             -e "s|@OWNER@|$GITHUB_REPOSITORY_OWNER|g" packaging/release-notes.md > notes.md
           prerelease=

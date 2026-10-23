@@ -85,12 +85,21 @@ def venv_python(venv):
 
 def install_dependencies(venv, requirements):
     """A system PySide6 (for example the distribution's package) is reused when present."""
-    if not venv_python(venv).is_file():
-        subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)], check=True)
     print("Installing the interface dependencies (PySide6); the first install downloads about 250 MB...",
           flush=True)
-    subprocess.run([str(venv_python(venv)), "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
-                    "-r", str(requirements)], check=True)
+    for attempt in (1, 2):
+        if not venv_python(venv).is_file():
+            subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)], check=True)
+        try:
+            subprocess.run([str(venv_python(venv)), "-m", "pip", "install", "--quiet",
+                            "--disable-pip-version-check", "-r", str(requirements)], check=True)
+            return
+        except subprocess.CalledProcessError:
+            # A venv left half-deleted (its files were in use) makes pip fail; start it again once.
+            if attempt == 2:
+                raise
+            print("Recreating the interface's Python environment...", flush=True)
+            shutil.rmtree(venv, ignore_errors=True)
 
 
 def write_launchers(root):

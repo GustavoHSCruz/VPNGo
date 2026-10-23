@@ -1,0 +1,130 @@
+<!--
+  WiX 6 source for the vpngo Windows Installer package (vpngo-<version>-windows.msi).
+
+  The release workflow unpacks the Windows archive and runs, from packaging\msi:
+
+    wix build vpngo.wxs -arch x64 -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
+      -d Version=1.2.3 -bindpath src=<unpacked vpngo-1.2.3-windows> -o vpngo-1.2.3-windows.msi
+
+  A per-user package: no administrator rights. Files go to %LOCALAPPDATA%\Programs\vpngo and its
+  windows folder joins the user PATH, so `vpngo` works in a new terminal. `vpngo update` sees a
+  managed install there and leaves upgrades to the next MSI. Settings and profiles live outside
+  the program folder and are kept.
+
+  Features: Cli (always) and Gui (the default), which runs vpngo's install-gui command (the interface's
+  release plus PySide6, about 250 MB) and adds a Start menu shortcut. The dialog lets the user
+  turn Gui off. Unattended:
+
+    msiexec /i vpngo-1.2.3-windows.msi /qn                  vpngo and the interface
+    msiexec /i vpngo-1.2.3-windows.msi /qn ADDLOCAL=Cli     only vpngo
+    msiexec /x vpngo-1.2.3-windows.msi /qn                  uninstall (keeps settings and history)
+
+  ProxiFyre is not part of the MSI; install it with windows\install-backend.ps1.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="vpngo" Manufacturer="GustavoHSCruz" Version="$(Version)" Scope="perUser"
+           UpgradeCode="d4a21872-0ef2-44a7-9fbe-2c5322cbb503" Compressed="yes">
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of vpngo is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="vpngo.ico" SourceFile="..\vpngo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="vpngo.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/GustavoHSCruz/VPNGo" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/GustavoHSCruz/VPNGo/issues" />
+
+    <!-- One installer at a time: both add the vpngo command and the VPNGo shortcut. -->
+    <Property Id="SETUPEXEINSTALLED">
+      <RegistrySearch Root="HKCU" Type="raw" Name="DisplayVersion"
+                      Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{6B1E5C7A-3F2D-4B8E-9A61-2C0D7E4F9B13}_is1" />
+    </Property>
+    <Launch Condition="Installed OR NOT SETUPEXEINSTALLED"
+            Message="vpngo is already installed by vpngo-windows-setup.exe. Uninstall it in Settings &gt; Apps first, or keep using that installer." />
+
+    <ui:WixUI Id="WixUI_FeatureTree" />
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="vpngo" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Cli" Title="vpngo command" AllowAbsent="no"
+             Description="The vpngo command for the terminal. Always installed.">
+      <ComponentGroupRef Id="ProgramFiles" />
+      <ComponentRef Id="UserPath" />
+    </Feature>
+    <Feature Id="Gui" Title="VPNGo app (graphical interface)"
+             Description="The VPNGo window and a Start menu shortcut. Downloads about 250 MB and needs Python 3.">
+      <ComponentRef Id="GuiShortcut" />
+    </Feature>
+
+    <ComponentGroup Id="ProgramFiles" Directory="INSTALLFOLDER">
+      <Files Include="!(bindpath.src)\**" />
+    </ComponentGroup>
+
+    <Component Id="UserPath" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCU" Key="Software\vpngo\msi" Name="path" Value="[INSTALLFOLDER]windows"
+                     Type="string" KeyPath="yes" />
+      <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]windows" Part="last" Action="set"
+                   System="no" Permanent="no" />
+    </Component>
+
+    <Component Id="GuiShortcut" Directory="ProgramMenuFolder">
+      <!-- The same folder as the install-gui command (shared\gui_install.py). -->
+      <Shortcut Id="GuiShortcut" Name="VPNGo" Description="Route apps through WireGuard"
+                Target="[LocalAppDataFolder]vpngo-gui\venv\Scripts\pythonw.exe"
+                Arguments="&quot;[LocalAppDataFolder]vpngo-gui\app\run.py&quot;"
+                Icon="vpngo.ico" />
+      <RegistryValue Root="HKCU" Key="Software\vpngo\msi" Name="gui" Value="1" Type="integer"
+                     KeyPath="yes" />
+    </Component>
+
+    <!-- Deferred actions get their command line from a property named after them. A running
+         interface holds files in its venv, so StopGui closes it before they are replaced or
+         removed. -->
+    <SetProperty Id="StopGui" Sequence="execute" Before="StopGui"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]windows\stop-gui.ps1&quot;" />
+    <CustomAction Id="StopGui" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <SetProperty Id="StopGuiBeforeInstall" Sequence="execute" Before="StopGuiBeforeInstall"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]windows\stop-gui.ps1&quot;" />
+    <CustomAction Id="StopGuiBeforeInstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <SetProperty Id="InstallGui" Sequence="execute" Before="InstallGui"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]windows\vpngo.ps1&quot; --install-gui" />
+    <CustomAction Id="InstallGui" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <!-- The interface this package added goes when its feature does; history (state) and
+         settings stay, as vpngo's profiles do. -->
+    <SetProperty Id="RemoveGui" Sequence="execute" Before="RemoveGui"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -Command &quot;$g = Join-Path $env:LOCALAPPDATA 'vpngo-gui'; Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $g 'app'), (Join-Path $g 'venv'), (Join-Path $g 'engine'), (Join-Path $g 'cli.json'), (Join-Path $HOME 'bin\vpngo-gui.cmd'); Remove-ItemProperty -ErrorAction SilentlyContinue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name VPNGo; exit 0&quot;" />
+    <CustomAction Id="RemoveGui" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <!-- Python leaves __pycache__ folders the package does not know about. -->
+    <SetProperty Id="RemoveLeftovers" Sequence="execute" Before="RemoveLeftovers"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -Command &quot;Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '[INSTALLFOLDER]'; exit 0&quot;" />
+    <CustomAction Id="RemoveLeftovers" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <!-- The interface is closed before InstallGui, and before RemoveFiles (while its script
+         still exists) when it goes. -->
+    <InstallExecuteSequence>
+      <Custom Action="StopGui" Before="RemoveFiles"
+              Condition="&amp;Gui=2 AND !Gui=3 AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="StopGuiBeforeInstall" After="InstallFiles" Condition="&amp;Gui=3" />
+      <Custom Action="InstallGui" After="StopGuiBeforeInstall" Condition="&amp;Gui=3" />
+      <Custom Action="RemoveGui" After="RemoveFiles"
+              Condition="&amp;Gui=2 AND !Gui=3 AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RemoveLeftovers" After="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
