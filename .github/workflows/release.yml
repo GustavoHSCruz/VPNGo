@@ -137,6 +137,58 @@ jobs:
           $Output = & (Join-Path $HOME 'bin\vpngo.cmd') version
           if ($Output -ne "vpngo $env:VERSION") { throw "Unexpected version output: $Output" }
 
+  windows_setup:
+    needs: build
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Build the setup .exe from the Windows archive
+        shell: pwsh
+        run: |
+          $Iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $Iscc)) { choco install innosetup -y --no-progress }
+          Expand-Archive -LiteralPath "dist\vpngo-$env:VERSION-windows.zip" -DestinationPath unpacked
+          & $Iscc /Q "/DAppVersion=$env:VERSION" "/DSourceDir=$PWD\unpacked\vpngo-$env:VERSION-windows" `
+            "/O$PWD\setup" packaging\windows-setup.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC failed.' }
+      - name: Install, upgrade and uninstall silently
+        shell: pwsh
+        run: |
+          $Setup = "setup\vpngo-$env:VERSION-windows-setup.exe"
+          $Shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\VPNGo.lnk'
+          # A command-line-only install, then an upgrade that adds the interface (the default).
+          foreach ($Run in @(@('cli', '--cli-only'), @('gui'))) {
+            $Process = Start-Process -FilePath $Setup -ArgumentList (@('--silent', "/LOG=$PWD\setup-$($Run[0]).log") + $Run[1..9]) -PassThru -Wait
+            if ($Process.ExitCode -ne 0) { Get-Content "setup-$($Run[0]).log"; throw "Silent $($Run[0]) install failed (exit $($Process.ExitCode))." }
+            if (($Run[0] -eq 'cli') -eq (Test-Path $Shortcut)) { throw "Unexpected Start menu shortcut state after the $($Run[0]) install." }
+          }
+          $Output = & (Join-Path $HOME 'bin\vpngo.cmd') version
+          if ($Output -ne "vpngo $env:VERSION") { throw "Unexpected version output: $Output" }
+          $Gui = & (Join-Path $env:LOCALAPPDATA 'vpngo-gui\venv\Scripts\python.exe') (Join-Path $env:LOCALAPPDATA 'vpngo-gui\app\run.py') --version
+          if ($Gui -notlike 'vpngo-gui *') { throw "Unexpected interface version output: $Gui" }
+          $Uninstaller = Join-Path $env:LOCALAPPDATA 'vpngo\uninstall\unins000.exe'
+          $Process = Start-Process -FilePath $Uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -PassThru -Wait
+          if ($Process.ExitCode -ne 0) { throw "Silent uninstall failed (exit $($Process.ExitCode))." }
+          Start-Sleep -Seconds 5  # The uninstaller removes its own folder from a helper process.
+          if (Test-Path (Join-Path $HOME 'bin\vpngo.cmd')) { throw 'The uninstaller left vpngo.cmd behind.' }
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'vpngo\app')) { throw 'The uninstaller left the app folder behind.' }
+          if (Test-Path $Shortcut) { throw 'The uninstaller left the Start menu shortcut behind.' }
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'vpngo-gui\app')) { throw 'The uninstaller left the interface behind.' }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-setup
+          path: setup/*.exe
+          if-no-files-found: error
+
   rpm:
     needs: build
     runs-on: ubuntu-latest
@@ -181,8 +233,9 @@ jobs:
     if: >-
       !cancelled() && github.ref_type == 'tag' &&
       needs.installers.result == 'success' && needs.rpm.result == 'success' &&
+      needs.windows_setup.result == 'success' &&
       (needs.arch.result == 'success' || needs.arch.result == 'skipped')
-    needs: [build, installers, rpm, arch]
+    needs: [build, installers, windows_setup, rpm, arch]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -195,8 +248,13 @@ jobs:
         with:
           name: dist
           path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-setup
+          path: dist
       - name: Publish the release
         run: |
+          (cd dist && sha256sum vpngo-*-windows-setup.exe >> SHA256SUMS && sha256sum -c SHA256SUMS)
           sed -e "s|@VERSION@|$VERSION|g" -e "s|@REPOSITORY@|$GITHUB_REPOSITORY|g" \
             -e "s|@OWNER@|$GITHUB_REPOSITORY_OWNER|g" packaging/release-notes.md > notes.md
           prerelease=
